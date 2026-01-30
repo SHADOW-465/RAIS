@@ -1,10 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { writeFile, mkdir } from 'fs/promises';
-import path from 'path';
 import { v4 as uuidv4 } from 'uuid';
 import crypto from 'crypto';
 import { excelProcessor } from '@/lib/upload';
 import { uploadRepository } from '@/lib/db/repositories/uploadRepository';
+import { supabaseAdmin } from '@/lib/db/supabaseClient';
+import { config } from '@/lib/config';
 
 const MAX_FILE_SIZE = 50 * 1024 * 1024; // 50MB
 
@@ -85,20 +85,37 @@ export async function POST(request: NextRequest) {
       status: 'PROCESSING',
     });
     
-    // Save file to disk
+    // Upload to Supabase Storage
     const now = new Date();
     const year = now.getFullYear();
     const month = String(now.getMonth() + 1).padStart(2, '0');
-    const uploadDir = path.join(process.cwd(), 'uploads', String(year), month);
-    await mkdir(uploadDir, { recursive: true });
-    
     const fileName = `${uuidv4()}_${file.name}`;
-    const filePath = path.join(uploadDir, fileName);
-    await writeFile(filePath, buffer);
+    const storagePath = `${year}/${month}/${fileName}`;
     
-    // Update upload record with path
+    const { error: storageError } = await supabaseAdmin.storage
+      .from(config.SUPABASE_STORAGE_BUCKET)
+      .upload(storagePath, buffer, {
+        contentType: file.type || 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        upsert: false,
+      });
+    
+    if (storageError) {
+      console.error('Supabase Storage error:', storageError);
+      // Update record as failed
+      await uploadRepository.update(uploadId, {
+        status: 'FAILED',
+        errorMessage: `Storage upload failed: ${storageError.message}`,
+      });
+      
+      return NextResponse.json(
+        { error: 'Failed to upload file to storage' },
+        { status: 500 }
+      );
+    }
+    
+    // Update upload record with storage path
     await uploadRepository.update(uploadId, {
-      storedPath: filePath,
+      storedPath: storagePath,
     });
     
     // Process Excel
