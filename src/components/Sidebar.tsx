@@ -5,11 +5,11 @@ import { usePathname } from 'next/navigation';
 import styles from './Sidebar.module.css';
 
 const NAV_ITEMS = [
-    { label: 'Dashboard', href: '/' },
-    { label: 'Rejection Trends', href: '/trends' },
-    { label: 'Defect Analysis', href: '/analysis' },
-    { label: 'Supplier Quality', href: '/supplier' },
-    { label: 'Reports', href: '/reports' },
+    { label: 'Dashboard', href: '/', icon: '📊' },
+    { label: 'Rejection Trends', href: '/trends', icon: '📈' },
+    { label: 'Defect Analysis', href: '/analysis', icon: '🔍' },
+    { label: 'Supplier Quality', href: '/supplier', icon: '🏭' },
+    { label: 'Reports', href: '/reports', icon: '📄' },
 ];
 
 export default function Sidebar() {
@@ -18,7 +18,19 @@ export default function Sidebar() {
     return (
         <aside className={styles.sidebar}>
             <div className={styles.logo}>
-                <span>RAIS</span>
+                <span className={styles.logoIcon}>📊</span>
+                <span className={styles.logoText}>RAIS</span>
+            </div>
+
+            {/* Quick Upload Link */}
+            <div className={styles.quickSection}>
+                <Link 
+                    href="/settings/upload" 
+                    className={styles.uploadLink}
+                >
+                    <span className={styles.uploadIcon}>📤</span>
+                    <span className={styles.uploadText}>Upload Data</span>
+                </Link>
             </div>
 
             <nav className={styles.nav}>
@@ -30,15 +42,21 @@ export default function Sidebar() {
                             href={item.href}
                             className={`${styles.link} ${isActive ? styles.active : ''}`}
                         >
-                            {item.label}
+                            <span className={styles.linkIcon}>{item.icon}</span>
+                            <span className={styles.linkText}>{item.label}</span>
+                            {isActive && <span className={styles.activeIndicator} />}
                         </Link>
                     );
                 })}
             </nav>
 
             <div className={styles.footer}>
-                <Link href="/settings" className={styles.link}>
-                    Settings
+                <Link 
+                    href="/settings" 
+                    className={`${styles.link} ${pathname?.startsWith('/settings') ? styles.active : ''}`}
+                >
+                    <span className={styles.linkIcon}>⚙️</span>
+                    <span className={styles.linkText}>Settings</span>
                 </Link>
             </div>
         </aside>
