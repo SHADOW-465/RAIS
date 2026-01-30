@@ -1,7 +1,7 @@
 # Product Requirements Document (PRD)
 ## RAIS - Manufacturing Quality & Rejection Statistics Dashboard
 
-**Version**: 1.0  
+**Version**: 2.0 (Supabase Edition)  
 **Date**: 2026-01-30  
 **Status**: Draft - Ready for Implementation  
 
@@ -16,6 +16,7 @@ RAIS (Rejection Analytics & Insights System) is a production-grade web applicati
 - **GM-Optimized**: Only essential KPIs on dashboard; drill-down pages for detailed analysis
 - **AI-Assisted Insights**: Plain-language summaries of complex statistics without hallucination
 - **Excel-to-Dashboard**: Automatic ingestion of existing Excel workflows
+- **Supabase Backend**: Built-in authentication, file storage, and PostgreSQL database
 
 ---
 
@@ -30,6 +31,7 @@ A single-page application with dedicated drill-down views that:
 - Computes real-time KPIs and trends
 - Presents data in an accessible, GM-friendly format
 - Provides AI-generated insights in plain language
+- Leverages Supabase for auth, storage, and database
 
 ### 1.3 Target Users
 
@@ -62,10 +64,12 @@ A single-page application with dedicated drill-down views that:
 7. AI-generated plain-language summaries
 8. PDF/Excel report export
 9. Role-based access (GM, Analyst)
+10. Supabase authentication and authorization
+11. Supabase Storage for Excel file uploads
 
 **Technical Requirements**:
 - Production-grade architecture
-- Scalable data model (PostgreSQL + TimescaleDB)
+- **Supabase backend** (PostgreSQL database, Auth, Storage)
 - Secure file handling with audit trails
 - Clean separation of frontend/backend/analytics/AI layers
 
@@ -82,6 +86,7 @@ A single-page application with dedicated drill-down views that:
 - ❌ Image-based defect detection
 - ❌ Chatbot interface
 - ❌ Gamification or leaderboards
+- ❌ Self-hosted database (using Supabase managed service)
 
 **Rationale**: These features add complexity without addressing the core GM pain point of scattered Excel data. They can be added in Phase 2 if requested.
 
@@ -262,6 +267,7 @@ RAIS Dashboard
 - [ ] Duplicate detection (skip or update)
 - [ ] Progress indicator for large files
 - [ ] Audit trail (who uploaded, when, file hash)
+- [ ] Supabase Storage for file persistence
 
 **Supported Schema Patterns**:
 The system must handle variations in Excel structures:
@@ -281,6 +287,7 @@ The system must handle variations in Excel structures:
 - [ ] Associate suppliers with rejection records
 - [ ] Calculate derived fields (rejection rate, cost per unit)
 - [ ] Handle missing data gracefully (nulls vs zeros)
+- [ ] Use Supabase client for all database operations
 
 ### 4.3 KPI Computation
 
@@ -332,9 +339,9 @@ The system must handle variations in Excel structures:
 - [ ] Fallback to template summary if AI fails
 - [ ] User can dismiss or regenerate summary
 
-### 4.6 Role-Based Access Control
+### 4.6 Supabase Authentication & Role-Based Access
 
-**Requirement**: Different user roles see different features and data.
+**Requirement**: Implement authentication using Supabase Auth with different user roles.
 
 **Roles**:
 1. **General Manager**
@@ -352,10 +359,12 @@ The system must handle variations in Excel structures:
 4. **Read-Only** - View only, no exports
 
 **Acceptance Criteria**:
+- [ ] Supabase Auth integration with email/password
 - [ ] Login page with role-based redirect
-- [ ] API routes enforce role permissions
+- [ ] API routes enforce role permissions via Supabase RLS
 - [ ] UI adapts to role (hide unauthorized features)
 - [ ] Audit log of all actions by user
+- [ ] Password reset functionality
 
 ---
 
@@ -392,7 +401,7 @@ The system must handle variations in Excel structures:
 
 **Optimization Strategies**:
 - Database indexes on date, line_id, defect_type_id
-- Continuous aggregates for pre-computed KPIs
+- Materialized views for pre-computed KPIs (using Supabase)
 - Client-side caching with SWR
 - Image optimization and lazy loading
 - Code splitting by route
@@ -400,19 +409,20 @@ The system must handle variations in Excel structures:
 ### 5.3 Security
 
 **Requirements**:
-- [ ] API keys (Gemini, database) stored server-side only
+- [ ] API keys (Gemini) stored server-side only
 - [ ] File uploads validated (type, size, content)
-- [ ] SQL injection prevention (parameterized queries)
+- [ ] SQL injection prevention (parameterized queries via Supabase)
 - [ ] XSS prevention (output encoding)
 - [ ] CSRF protection for state-changing operations
 - [ ] Rate limiting on API endpoints
 - [ ] Audit logs for all data modifications
 - [ ] HTTPS only (HSTS header)
+- [ ] Row Level Security (RLS) policies in Supabase
 
 **Data Retention**:
 - Raw rejection records: 2 years
 - Aggregated statistics: Indefinite
-- Uploaded Excel files: 90 days
+- Uploaded Excel files: 90 days (in Supabase Storage)
 - Audit logs: 1 year
 
 ### 5.4 Reliability
@@ -422,7 +432,7 @@ The system must handle variations in Excel structures:
 - [ ] Graceful degradation (dashboard works if AI is down)
 - [ ] Automatic retry with exponential backoff
 - [ ] Data validation prevents corrupted state
-- [ ] Backup strategy: Daily automated backups
+- [ ] Backup strategy: Supabase managed backups
 
 ### 5.5 Browser Support
 
@@ -448,7 +458,7 @@ The system must handle variations in Excel structures:
 
 ---
 
-## 6. Data Model
+## 6. Data Model (Supabase PostgreSQL)
 
 ### 6.1 Conceptual Schema
 
@@ -457,14 +467,14 @@ The system must handle variations in Excel structures:
 2. **Defect Types** (Reference data)
 3. **Production Lines** (Reference data)
 4. **Suppliers** (Reference data)
-5. **Uploaded Files** (Audit trail)
-6. **Users** (Authentication)
+5. **Uploaded Files** (Audit trail - Supabase Storage metadata)
+6. **Users** (Authentication - managed by Supabase Auth)
 7. **Aggregated Stats** (Pre-computed KPIs)
 
 ### 6.2 Logical Schema
 
 ```sql
--- Time-series hypertable (TimescaleDB)
+-- Main rejection records table (standard PostgreSQL table)
 CREATE TABLE rejection_records (
     id BIGSERIAL PRIMARY KEY,
     timestamp TIMESTAMPTZ NOT NULL,
@@ -481,8 +491,10 @@ CREATE TABLE rejection_records (
     created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
--- Convert to hypertable for time-series optimization
-SELECT create_hypertable('rejection_records', 'timestamp');
+-- Create indexes for time-series queries
+CREATE INDEX idx_rejection_timestamp ON rejection_records (timestamp DESC);
+CREATE INDEX idx_rejection_line_time ON rejection_records (line_id, timestamp DESC);
+CREATE INDEX idx_rejection_defect_time ON rejection_records (defect_type_id, timestamp DESC);
 
 -- Reference tables
 CREATE TABLE defect_types (
@@ -499,7 +511,7 @@ CREATE TABLE production_lines (
     id SERIAL PRIMARY KEY,
     name VARCHAR(100) NOT NULL,
     department VARCHAR(50),
-    factory_id INTEGER,
+    factory_id INTEGER DEFAULT 1,
     active BOOLEAN DEFAULT TRUE,
     created_at TIMESTAMPTZ DEFAULT NOW()
 );
@@ -516,10 +528,10 @@ CREATE TABLE uploaded_files (
     id SERIAL PRIMARY KEY,
     uuid UUID DEFAULT gen_random_uuid(),
     original_filename VARCHAR(255) NOT NULL,
-    stored_path VARCHAR(500) NOT NULL,
+    storage_path VARCHAR(500) NOT NULL, -- Supabase Storage path
     file_size_bytes INTEGER,
     file_hash VARCHAR(64),
-    uploaded_by INTEGER REFERENCES users(id),
+    uploaded_by UUID REFERENCES auth.users(id), -- Supabase Auth user
     uploaded_at TIMESTAMPTZ DEFAULT NOW(),
     processed_at TIMESTAMPTZ,
     status VARCHAR(20) DEFAULT 'PENDING' CHECK (status IN ('PENDING', 'PROCESSING', 'COMPLETED', 'FAILED')),
@@ -528,21 +540,19 @@ CREATE TABLE uploaded_files (
     records_failed INTEGER DEFAULT 0
 );
 
-CREATE TABLE users (
-    id SERIAL PRIMARY KEY,
-    email VARCHAR(100) UNIQUE NOT NULL,
+-- Note: users table is managed by Supabase Auth (auth.users)
+-- We create a public profile table for additional user data
+CREATE TABLE user_profiles (
+    id UUID PRIMARY KEY REFERENCES auth.users(id),
     name VARCHAR(100) NOT NULL,
     role VARCHAR(20) DEFAULT 'ANALYST' CHECK (role IN ('GM', 'ANALYST', 'VIEWER')),
-    password_hash VARCHAR(255),
-    last_login TIMESTAMPTZ,
     created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
--- Continuous aggregate for daily stats (TimescaleDB)
-CREATE MATERIALIZED VIEW daily_rejection_stats
-WITH (timescaledb.continuous) AS
+-- Materialized view for daily stats
+CREATE MATERIALIZED VIEW daily_rejection_stats AS
 SELECT
-    time_bucket('1 day', timestamp) AS day,
+    date_trunc('day', timestamp) AS day,
     line_id,
     defect_type_id,
     COUNT(*) as rejection_count,
@@ -550,14 +560,45 @@ SELECT
     SUM(quantity * COALESCE(cost_per_unit, 0)) as total_cost
 FROM rejection_records
 GROUP BY day, line_id, defect_type_id;
+
+-- Create index on materialized view
+CREATE INDEX idx_daily_stats_day ON daily_rejection_stats (day DESC);
+
+-- Enable Row Level Security (RLS)
+ALTER TABLE rejection_records ENABLE ROW LEVEL SECURITY;
+ALTER TABLE defect_types ENABLE ROW LEVEL SECURITY;
+ALTER TABLE production_lines ENABLE ROW LEVEL SECURITY;
+ALTER TABLE suppliers ENABLE ROW LEVEL SECURITY;
+ALTER TABLE uploaded_files ENABLE ROW LEVEL SECURITY;
+ALTER TABLE user_profiles ENABLE ROW LEVEL SECURITY;
+
+-- RLS Policies (example - allow authenticated users to read)
+CREATE POLICY "Allow authenticated read" ON rejection_records
+    FOR SELECT TO authenticated USING (true);
+
+CREATE POLICY "Allow analyst insert" ON rejection_records
+    FOR INSERT TO authenticated 
+    WITH CHECK (EXISTS (
+        SELECT 1 FROM user_profiles 
+        WHERE id = auth.uid() 
+        AND role IN ('ANALYST', 'GM')
+    ));
 ```
 
 ### 6.3 Data Retention
 
-- **Rejection Records**: Compressed after 90 days, archived after 2 years
+- **Rejection Records**: Compressed after 90 days using Supabase partitioning, archived after 2 years
 - **Daily Stats**: Indefinite (small size due to aggregation)
-- **Uploaded Files**: Deleted after 90 days (metadata retained)
+- **Uploaded Files**: Deleted after 90 days from Supabase Storage (metadata retained)
 - **Audit Logs**: Rotated after 1 year
+
+### 6.4 Supabase Storage
+
+**Bucket**: `uploads`
+- Folder structure: `{year}/{month}/{uuid}_{filename}.xlsx`
+- Public access: No (private bucket)
+- File size limit: 50MB
+- Allowed types: .xlsx, .xls
 
 ---
 
@@ -719,9 +760,10 @@ Anomalies:
 |------|------------|--------|------------|
 | Excel schema variations break import | High | High | Fuzzy matching + manual mapping UI |
 | AI generates incorrect summaries | Medium | High | Low temperature + template fallback |
-| Database performance degrades | Low | High | TimescaleDB + continuous aggregates |
+| Database performance degrades | Low | High | Supabase indexes + materialized views |
 | File uploads too large for memory | Medium | Medium | Streaming parser + chunked upload |
 | Accessibility compliance issues | Medium | High | WCAG testing from day one |
+| Supabase rate limits | Low | Medium | Implement client-side caching |
 
 ### 9.2 Business Risks
 
@@ -741,6 +783,8 @@ Anomalies:
 
 4. **Users have modern browsers**: IE11 not supported. Reality: Corporate environments may have old browsers. Mitigation: Browser detection + warning.
 
+5. **Supabase availability**: System relies on Supabase cloud service. Reality: Network issues or service outages. Mitigation: Client-side caching, retry logic.
+
 ---
 
 ## 10. Dependencies & External Services
@@ -751,8 +795,7 @@ Anomalies:
 - Next.js 16.x (framework)
 - React 19.x (UI library)
 - TypeScript 5.x (type safety)
-- PostgreSQL 15+ (database)
-- TimescaleDB 2.x (time-series extension)
+- **Supabase**: @supabase/supabase-js (database, auth, storage)
 
 **To Add**:
 - `recharts` (charting library)
@@ -760,7 +803,7 @@ Anomalies:
 - `@google/generative-ai` (Gemini SDK)
 - `zustand` (state management)
 - `swr` (data fetching)
-- `bcryptjs` (password hashing)
+- `bcryptjs` (password hashing - for local dev, Supabase Auth in production)
 - `jose` (JWT handling)
 - `zod` (schema validation)
 - `date-fns` (date manipulation)
@@ -769,11 +812,14 @@ Anomalies:
 ### 10.2 External Services
 
 **Required**:
-- Google Gemini API (AI summaries)
+- **Supabase**: Database, Authentication, Storage
+- **Google Gemini API**: AI summaries
 
-**Optional**:
-- Redis (caching, job queue)
-- S3-compatible storage (file backups)
+**Supabase Services Used**:
+- PostgreSQL Database
+- Authentication (auth.users, email/password)
+- Storage (for Excel uploads)
+- Row Level Security (RLS)
 
 ### 10.3 Development Tools
 
@@ -788,15 +834,15 @@ Anomalies:
 ## 11. Success Criteria Checklist
 
 **Before Release, Must Have**:
-- [ ] All 5 pages functional with real data
-- [ ] Excel upload working with validation
-- [ ] AI summaries generating accurately
+- [ ] All 5 pages functional with real data from Supabase
+- [ ] Excel upload working with Supabase Storage
+- [ ] Dashboard displays AI summaries
+- [ ] Supabase Auth implemented with role-based access
+- [ ] RLS policies configured for security
 - [ ] WCAG AAA accessibility compliance
 - [ ] Dashboard loads in <2 seconds
 - [ ] Mobile responsive (tablet minimum)
-- [ ] Role-based access implemented
 - [ ] Audit logs operational
-- [ ] Backup strategy in place
 - [ ] Documentation complete
 
 **Post-Release Nice-to-Have**:
@@ -815,13 +861,16 @@ Anomalies:
 - **GM**: General Manager
 - **KPI**: Key Performance Indicator
 - **Pareto Chart**: Bar + line chart showing frequency and cumulative percentage
-- **Hypertable**: TimescaleDB time-series optimized table
+- **Supabase**: Backend-as-a-Service platform (PostgreSQL, Auth, Storage)
+- **RLS**: Row Level Security
+- **SWR**: Stale-While-Revalidate caching strategy
 - **WCAG**: Web Content Accessibility Guidelines
 
 ### 12.2 Reference Documents
 
 - Original prompt: `/prompt.md`
 - Architecture guide: Oracle consultation results
+- Supabase Docs: https://supabase.com/docs
 - Design mockups: (to be created during implementation)
 
 ### 12.3 Revision History
@@ -829,6 +878,7 @@ Anomalies:
 | Version | Date | Author | Changes |
 |---------|------|--------|---------|
 | 1.0 | 2026-01-30 | Prometheus | Initial PRD creation |
+| 2.0 | 2026-01-30 | Prometheus | Migrated to Supabase (Auth, Storage, PostgreSQL) |
 
 ---
 
