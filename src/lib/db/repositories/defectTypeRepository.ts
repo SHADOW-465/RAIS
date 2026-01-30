@@ -1,64 +1,86 @@
-import { pool } from '../connection';
+import { supabaseAdmin } from '../supabaseClient';
 import { DefectType } from '../types';
 
 export class DefectTypeRepository {
   async getAll(): Promise<DefectType[]> {
-    const query = 'SELECT * FROM defect_types ORDER BY name';
-    const result = await pool.query(query);
-    return result.rows.map(row => this.mapRowToDefectType(row));
+    const { data, error } = await supabaseAdmin
+      .from('defect_types')
+      .select('*')
+      .order('name');
+    
+    if (error) throw error;
+    return (data || []).map(row => this.mapRowToDefectType(row));
   }
 
   async getById(id: number): Promise<DefectType | null> {
-    const query = 'SELECT * FROM defect_types WHERE id = $1';
-    const result = await pool.query(query, [id]);
-    return result.rows[0] ? this.mapRowToDefectType(result.rows[0]) : null;
+    const { data, error } = await supabaseAdmin
+      .from('defect_types')
+      .select('*')
+      .eq('id', id)
+      .single();
+    
+    if (error) {
+      if (error.code === 'PGRST116') return null; // Not found
+      throw error;
+    }
+    return data ? this.mapRowToDefectType(data) : null;
   }
 
   async getByCode(code: string): Promise<DefectType | null> {
-    const query = 'SELECT * FROM defect_types WHERE code = $1';
-    const result = await pool.query(query, [code.toUpperCase()]);
-    return result.rows[0] ? this.mapRowToDefectType(result.rows[0]) : null;
+    const { data, error } = await supabaseAdmin
+      .from('defect_types')
+      .select('*')
+      .eq('code', code.toUpperCase())
+      .single();
+    
+    if (error) {
+      if (error.code === 'PGRST116') return null; // Not found
+      throw error;
+    }
+    return data ? this.mapRowToDefectType(data) : null;
   }
 
   async findByName(name: string): Promise<DefectType | null> {
-    // Fuzzy matching - normalize the input
     const normalized = name.toLowerCase().trim();
     
     // Try exact match first
-    let query = 'SELECT * FROM defect_types WHERE LOWER(name) = $1';
-    let result = await pool.query(query, [normalized]);
+    const { data: exactMatch, error: exactError } = await supabaseAdmin
+      .from('defect_types')
+      .select('*')
+      .ilike('name', normalized)
+      .single();
     
-    if (result.rows[0]) {
-      return this.mapRowToDefectType(result.rows[0]);
+    if (exactMatch) {
+      return this.mapRowToDefectType(exactMatch);
     }
     
     // Try contains match
-    query = 'SELECT * FROM defect_types WHERE LOWER(name) LIKE $1 LIMIT 1';
-    result = await pool.query(query, [`%${normalized}%`]);
+    const { data: containsMatch, error: containsError } = await supabaseAdmin
+      .from('defect_types')
+      .select('*')
+      .ilike('name', `%${normalized}%`)
+      .limit(1)
+      .single();
     
-    if (result.rows[0]) {
-      return this.mapRowToDefectType(result.rows[0]);
-    }
-    
-    return null;
+    if (containsError && containsError.code !== 'PGRST116') throw containsError;
+    return containsMatch ? this.mapRowToDefectType(containsMatch) : null;
   }
 
   async create(defectType: Partial<DefectType>): Promise<DefectType> {
-    const query = `
-      INSERT INTO defect_types (code, name, category, severity, description)
-      VALUES ($1, $2, $3, $4, $5)
-      RETURNING *
-    `;
+    const { data, error } = await supabaseAdmin
+      .from('defect_types')
+      .insert({
+        code: defectType.code?.toUpperCase(),
+        name: defectType.name,
+        category: defectType.category,
+        severity: defectType.severity,
+        description: defectType.description,
+      })
+      .select()
+      .single();
     
-    const result = await pool.query(query, [
-      defectType.code?.toUpperCase(),
-      defectType.name,
-      defectType.category,
-      defectType.severity,
-      defectType.description,
-    ]);
-    
-    return this.mapRowToDefectType(result.rows[0]);
+    if (error) throw error;
+    return this.mapRowToDefectType(data);
   }
 
   async getOrCreate(code: string, name: string): Promise<DefectType> {
@@ -78,8 +100,8 @@ export class DefectTypeRepository {
       category: row.category,
       severity: row.severity,
       description: row.description,
-      createdAt: row.created_at,
-      updatedAt: row.updated_at,
+      createdAt: new Date(row.created_at),
+      updatedAt: new Date(row.updated_at),
     };
   }
 }

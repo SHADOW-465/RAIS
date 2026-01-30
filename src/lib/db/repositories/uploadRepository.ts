@@ -1,82 +1,93 @@
-import { pool } from '../connection';
+import { supabaseAdmin } from '../supabaseClient';
 import { UploadedFile } from '../types';
 
 export class UploadRepository {
   async create(file: Partial<UploadedFile>): Promise<number> {
-    const query = `
-      INSERT INTO uploaded_files (original_filename, file_hash, file_size_bytes, status)
-      VALUES ($1, $2, $3, $4)
-      RETURNING id
-    `;
+    const { data, error } = await supabaseAdmin
+      .from('uploaded_files')
+      .insert({
+        original_filename: file.originalFilename,
+        file_hash: file.fileHash,
+        file_size_bytes: file.fileSizeBytes,
+        status: file.status || 'PENDING',
+        stored_path: file.storedPath || '',
+      })
+      .select('id')
+      .single();
     
-    const result = await pool.query(query, [
-      file.originalFilename,
-      file.fileHash,
-      file.fileSizeBytes,
-      file.status || 'PENDING',
-    ]);
-    
-    return result.rows[0].id;
+    if (error) throw error;
+    return data.id;
   }
 
   async update(id: number, updates: Partial<UploadedFile>): Promise<void> {
-    const fields: string[] = [];
-    const values: (string | number | Date | undefined)[] = [];
-    let paramIndex = 1;
+    const updateData: any = {};
 
     if (updates.storedPath !== undefined) {
-      fields.push(`stored_path = $${paramIndex++}`);
-      values.push(updates.storedPath);
+      updateData.stored_path = updates.storedPath;
     }
     if (updates.status !== undefined) {
-      fields.push(`status = $${paramIndex++}`);
-      values.push(updates.status);
+      updateData.status = updates.status;
     }
     if (updates.processedAt !== undefined) {
-      fields.push(`processed_at = $${paramIndex++}`);
-      values.push(updates.processedAt);
+      updateData.processed_at = updates.processedAt?.toISOString();
     }
     if (updates.recordsProcessed !== undefined) {
-      fields.push(`records_processed = $${paramIndex++}`);
-      values.push(updates.recordsProcessed);
+      updateData.records_processed = updates.recordsProcessed;
     }
     if (updates.recordsFailed !== undefined) {
-      fields.push(`records_failed = $${paramIndex++}`);
-      values.push(updates.recordsFailed);
+      updateData.records_failed = updates.recordsFailed;
     }
     if (updates.errorMessage !== undefined) {
-      fields.push(`error_message = $${paramIndex++}`);
-      values.push(updates.errorMessage);
+      updateData.error_message = updates.errorMessage;
     }
 
-    if (fields.length === 0) return;
+    if (Object.keys(updateData).length === 0) return;
 
-    values.push(id);
-    const query = `UPDATE uploaded_files SET ${fields.join(', ')} WHERE id = $${paramIndex}`;
+    const { error } = await supabaseAdmin
+      .from('uploaded_files')
+      .update(updateData)
+      .eq('id', id);
     
-    await pool.query(query, values);
+    if (error) throw error;
   }
 
   async findById(id: number): Promise<UploadedFile | null> {
-    const query = 'SELECT * FROM uploaded_files WHERE id = $1';
-    const result = await pool.query(query, [id]);
-    return result.rows[0] ? this.mapRowToFile(result.rows[0]) : null;
+    const { data, error } = await supabaseAdmin
+      .from('uploaded_files')
+      .select('*')
+      .eq('id', id)
+      .single();
+    
+    if (error) {
+      if (error.code === 'PGRST116') return null;
+      throw error;
+    }
+    return data ? this.mapRowToFile(data) : null;
   }
 
   async findByHash(fileHash: string): Promise<UploadedFile | null> {
-    const query = 'SELECT * FROM uploaded_files WHERE file_hash = $1';
-    const result = await pool.query(query, [fileHash]);
-    return result.rows[0] ? this.mapRowToFile(result.rows[0]) : null;
+    const { data, error } = await supabaseAdmin
+      .from('uploaded_files')
+      .select('*')
+      .eq('file_hash', fileHash)
+      .single();
+    
+    if (error) {
+      if (error.code === 'PGRST116') return null;
+      throw error;
+    }
+    return data ? this.mapRowToFile(data) : null;
   }
 
   async getRecent(limit: number = 10): Promise<UploadedFile[]> {
-    const query = `
-      SELECT * FROM uploaded_files 
-      ORDER BY uploaded_at DESC 
-      LIMIT $1
-    `;
-    const result = await pool.query(query, [limit]);
-    return result.rows.map(row => this.mapRowToFile(row));
+    const { data, error } = await supabaseAdmin
+      .from('uploaded_files')
+      .select('*')
+      .order('uploaded_at', { ascending: false })
+      .limit(limit);
+    
+    if (error) throw error;
+    return (data || []).map(row => this.mapRowToFile(row));
   }
 
   private mapRowToFile(row: any): UploadedFile {
@@ -88,8 +99,8 @@ export class UploadRepository {
       fileSizeBytes: row.file_size_bytes,
       fileHash: row.file_hash,
       uploadedBy: row.uploaded_by,
-      uploadedAt: row.uploaded_at,
-      processedAt: row.processed_at,
+      uploadedAt: new Date(row.uploaded_at),
+      processedAt: row.processed_at ? new Date(row.processed_at) : undefined,
       status: row.status,
       errorMessage: row.error_message,
       recordsProcessed: row.records_processed,
