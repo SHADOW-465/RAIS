@@ -8,12 +8,17 @@ const numberWithDefault = (defaultValue: number) =>
   );
 
 const configSchema = z.object({
-  // Database
+  // Supabase
+  NEXT_PUBLIC_SUPABASE_URL: z.string().default('https://placeholder.supabase.co'),
+  NEXT_PUBLIC_SUPABASE_ANON_KEY: z.string().default('placeholder-anon-key'),
+  SUPABASE_SERVICE_ROLE_KEY: z.string().optional(),
+  
+  // Legacy Database (kept for backward compatibility during migration)
   DB_HOST: z.string().default('localhost'),
   DB_PORT: numberWithDefault(5432),
   DB_NAME: z.string().default('rais_db'),
   DB_USER: z.string().default('rais_user'),
-  DB_PASSWORD: z.string(),
+  DB_PASSWORD: z.string().optional(),
   
   // AI
   GEMINI_API_KEY: z.string(),
@@ -21,9 +26,12 @@ const configSchema = z.object({
   // Auth
   SESSION_SECRET: z.string().min(32),
   
-  // Storage
-  UPLOAD_DIR: z.string().default('./uploads'),
+  // Storage (Supabase Storage bucket name)
+  SUPABASE_STORAGE_BUCKET: z.string().default('uploads'),
   MAX_FILE_SIZE: numberWithDefault(52428800),
+  
+  // Legacy Storage (kept for backward compatibility)
+  UPLOAD_DIR: z.string().default('./uploads'),
   
   // App
   NEXT_PUBLIC_APP_URL: z.string().default('http://localhost:3000'),
