@@ -1,8 +1,5 @@
 -- RAIS Database Schema
--- PostgreSQL with TimescaleDB extension
-
--- Enable TimescaleDB extension
-CREATE EXTENSION IF NOT EXISTS timescaledb;
+-- PostgreSQL (Supabase-compatible, no TimescaleDB)
 
 -- Reference table for defect types
 CREATE TABLE IF NOT EXISTS defect_types (
@@ -53,10 +50,10 @@ CREATE TABLE IF NOT EXISTS products (
     created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
--- Main time-series table for rejection records
+-- Main table for rejection records (standard table, no hypertable)
 CREATE TABLE IF NOT EXISTS rejection_records (
-    id BIGSERIAL,
-    timestamp TIMESTAMPTZ NOT NULL,
+    id BIGSERIAL PRIMARY KEY,
+    timestamp TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     line_id INTEGER NOT NULL REFERENCES production_lines(id),
     shift_id INTEGER REFERENCES shifts(id),
     defect_type_id INTEGER NOT NULL REFERENCES defect_types(id),
@@ -68,15 +65,7 @@ CREATE TABLE IF NOT EXISTS rejection_records (
     reason TEXT,
     operator_id VARCHAR(50),
     uploaded_file_id INTEGER,
-    created_at TIMESTAMPTZ DEFAULT NOW(),
-    
-    PRIMARY KEY (id, timestamp)
-);
-
--- Convert to TimescaleDB hypertable
-SELECT create_hypertable('rejection_records', 'timestamp', 
-    chunk_time_interval => INTERVAL '1 week',
-    if_not_exists => TRUE
+    created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
 -- Table for tracking uploaded files
@@ -120,11 +109,10 @@ CREATE INDEX IF NOT EXISTS idx_rejection_supplier_time
 CREATE INDEX IF NOT EXISTS idx_rejection_timestamp 
     ON rejection_records (timestamp DESC);
 
--- Continuous aggregate for daily statistics
-CREATE MATERIALIZED VIEW IF NOT EXISTS daily_rejection_stats
-WITH (timescaledb.continuous) AS
+-- Materialized view for daily statistics (standard PostgreSQL, refreshed manually or via cron)
+CREATE MATERIALIZED VIEW IF NOT EXISTS daily_rejection_stats AS
 SELECT
-    time_bucket('1 day', timestamp) AS day,
+    DATE_TRUNC('day', timestamp) AS day,
     line_id,
     defect_type_id,
     supplier_id,
@@ -134,15 +122,10 @@ SELECT
     SUM(total_cost) as total_cost,
     MAX(quantity) as max_single_rejection
 FROM rejection_records
-GROUP BY day, line_id, defect_type_id, supplier_id;
+GROUP BY DATE_TRUNC('day', timestamp), line_id, defect_type_id, supplier_id;
 
--- Policy to refresh continuous aggregate
-SELECT add_continuous_aggregate_policy('daily_rejection_stats',
-    start_offset => INTERVAL '1 month',
-    end_offset => INTERVAL '1 hour',
-    schedule_interval => INTERVAL '1 hour',
-    if_not_exists => TRUE
-);
+-- Index on materialized view
+CREATE INDEX IF NOT EXISTS idx_daily_stats_day ON daily_rejection_stats (day DESC);
 
 -- Add comments for documentation
 COMMENT ON TABLE rejection_records IS 'Time-series data of manufacturing rejections';

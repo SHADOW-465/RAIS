@@ -36,3 +36,24 @@
   border-top: 1px solid var(--color-border);
   padding-top: var(--spacing-lg);
 }
+
+.primaryButton {
+  padding: 14px 24px;
+  background: #3B82F6;
+  color: white;
+  border-radius: 8px;
+  text-decoration: none;
+  font-weight: 600;
+  font-size: 16px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  box-shadow: 0 2px 4px rgba(59, 130, 246, 0.3);
+  transition: all 0.2s ease;
+}
+
+.primaryButton:hover {
+  background: #2563EB;
+  transform: translateY(-1px);
+  box-shadow: 0 4px 8px rgba(59, 130, 246, 0.4);
+}

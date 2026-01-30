@@ -11,7 +11,7 @@ const DEFAULT_PRODUCED_VOLUME = 100000;
 async function getDashboardData() {
   const to = new Date();
   const from = subDays(to, 30);
-  
+
   try {
     // Fetch all KPIs in parallel
     const [rejectionRate, costImpact, topRisk, forecast] = await Promise.all([
@@ -20,14 +20,14 @@ async function getDashboardData() {
       kpiEngine.identifyTopRisk(from, to),
       kpiEngine.generateForecast(30),
     ]);
-    
+
     // Generate AI summary
     const aiSummary = await geminiService.generateHealthSummary({
       rejectionRate,
       topRisk,
       costImpact,
     });
-    
+
     // Determine health status
     let status: 'GOOD' | 'WARNING' | 'CRITICAL' = 'GOOD';
     if (rejectionRate.delta > 1.0) {
@@ -35,7 +35,7 @@ async function getDashboardData() {
     } else if (rejectionRate.delta > 0.5) {
       status = 'WARNING';
     }
-    
+
     return {
       health: {
         status,
@@ -116,7 +116,7 @@ async function getDashboardData() {
 
 export default async function DashboardPage() {
   const data = await getDashboardData();
-  
+
   return (
     <div className={styles.container}>
       {/* Top Strip */}
@@ -152,26 +152,26 @@ export default async function DashboardPage() {
           subtext={`${data.metrics.topRisk.name} - ${data.metrics.topRisk.line}`}
         >
           {/* Progress bar for risk contribution */}
-          <div 
-            style={{ 
-              height: '4px', 
-              background: '#E6E8EB', 
-              borderRadius: '2px', 
-              marginTop: '8px', 
-              width: '100%' 
+          <div
+            style={{
+              height: '4px',
+              background: '#E6E8EB',
+              borderRadius: '2px',
+              marginTop: '8px',
+              width: '100%'
             }}
             role="progressbar"
             aria-valuenow={parseFloat(data.metrics.topRisk.contribution)}
             aria-valuemin={0}
             aria-valuemax={100}
           >
-            <div 
-              style={{ 
-                height: '100%', 
-                background: '#D64545', 
-                width: data.metrics.topRisk.contribution, 
-                borderRadius: '2px' 
-              }} 
+            <div
+              style={{
+                height: '100%',
+                background: '#D64545',
+                width: data.metrics.topRisk.contribution,
+                borderRadius: '2px'
+              }}
             />
           </div>
         </KPICard>
@@ -196,9 +196,9 @@ export default async function DashboardPage() {
             Confidence: {data.metrics.forecast.confidence}
           </div>
           {/* Simple trend indicator */}
-          <div style={{ 
-            marginTop: '8px', 
-            padding: '4px 8px', 
+          <div style={{
+            marginTop: '8px',
+            padding: '4px 8px',
             background: 'var(--color-bg-secondary)',
             borderRadius: '4px',
             fontSize: '0.75rem',
@@ -215,41 +215,18 @@ export default async function DashboardPage() {
           Quick Actions
         </h3>
         <div style={{ display: 'flex', gap: '12px', flexWrap: 'wrap' }}>
-          <a 
-            href="/settings/upload" 
-            style={{ 
-              padding: '14px 24px', 
-              background: '#3B82F6', 
-              color: 'white',
-              borderRadius: '8px',
-              textDecoration: 'none',
-              fontWeight: 600,
-              fontSize: '16px',
-              display: 'flex',
-              alignItems: 'center',
-              gap: '8px',
-              boxShadow: '0 2px 4px rgba(59, 130, 246, 0.3)',
-              transition: 'all 0.2s ease'
-            }}
-            onMouseEnter={(e) => {
-              e.currentTarget.style.background = '#2563EB';
-              e.currentTarget.style.transform = 'translateY(-1px)';
-              e.currentTarget.style.boxShadow = '0 4px 8px rgba(59, 130, 246, 0.4)';
-            }}
-            onMouseLeave={(e) => {
-              e.currentTarget.style.background = '#3B82F6';
-              e.currentTarget.style.transform = 'translateY(0)';
-              e.currentTarget.style.boxShadow = '0 2px 4px rgba(59, 130, 246, 0.3)';
-            }}
+          <a
+            href="/settings/upload"
+            className={styles.primaryButton}
           >
             <span>📤</span>
             Upload Data
           </a>
-          <a 
-            href="/trends" 
-            style={{ 
-              padding: '14px 24px', 
-              background: 'var(--color-bg-primary)', 
+          <a
+            href="/trends"
+            style={{
+              padding: '14px 24px',
+              background: 'var(--color-bg-primary)',
               color: 'var(--color-text-primary)',
               border: '1px solid var(--color-border)',
               borderRadius: '8px',
@@ -264,11 +241,11 @@ export default async function DashboardPage() {
             <span>📈</span>
             View Trends
           </a>
-          <a 
-            href="/analysis" 
-            style={{ 
-              padding: '14px 24px', 
-              background: 'var(--color-bg-primary)', 
+          <a
+            href="/analysis"
+            style={{
+              padding: '14px 24px',
+              background: 'var(--color-bg-primary)',
               color: 'var(--color-text-primary)',
               border: '1px solid var(--color-border)',
               borderRadius: '8px',
@@ -283,11 +260,11 @@ export default async function DashboardPage() {
             <span>🔍</span>
             Defect Analysis
           </a>
-          <a 
-            href="/supplier" 
-            style={{ 
-              padding: '14px 24px', 
-              background: 'var(--color-bg-primary)', 
+          <a
+            href="/supplier"
+            style={{
+              padding: '14px 24px',
+              background: 'var(--color-bg-primary)',
               color: 'var(--color-text-primary)',
               border: '1px solid var(--color-border)',
               borderRadius: '8px',
