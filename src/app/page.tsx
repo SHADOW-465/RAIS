@@ -216,47 +216,90 @@ export default async function DashboardPage() {
         </h3>
         <div style={{ display: 'flex', gap: '12px', flexWrap: 'wrap' }}>
           <a 
-            href="/trends" 
+            href="/settings/upload" 
             style={{ 
-              padding: '12px 20px', 
-              background: 'var(--color-info)', 
+              padding: '14px 24px', 
+              background: '#3B82F6', 
               color: 'white',
-              borderRadius: '6px',
+              borderRadius: '8px',
               textDecoration: 'none',
-              fontWeight: 500,
-              fontSize: '16px'
+              fontWeight: 600,
+              fontSize: '16px',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '8px',
+              boxShadow: '0 2px 4px rgba(59, 130, 246, 0.3)',
+              transition: 'all 0.2s ease'
+            }}
+            onMouseEnter={(e) => {
+              e.currentTarget.style.background = '#2563EB';
+              e.currentTarget.style.transform = 'translateY(-1px)';
+              e.currentTarget.style.boxShadow = '0 4px 8px rgba(59, 130, 246, 0.4)';
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.background = '#3B82F6';
+              e.currentTarget.style.transform = 'translateY(0)';
+              e.currentTarget.style.boxShadow = '0 2px 4px rgba(59, 130, 246, 0.3)';
             }}
           >
+            <span>📤</span>
+            Upload Data
+          </a>
+          <a 
+            href="/trends" 
+            style={{ 
+              padding: '14px 24px', 
+              background: 'var(--color-bg-primary)', 
+              color: 'var(--color-text-primary)',
+              border: '1px solid var(--color-border)',
+              borderRadius: '8px',
+              textDecoration: 'none',
+              fontWeight: 500,
+              fontSize: '16px',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '8px'
+            }}
+          >
+            <span>📈</span>
             View Trends
           </a>
           <a 
             href="/analysis" 
             style={{ 
-              padding: '12px 20px', 
+              padding: '14px 24px', 
               background: 'var(--color-bg-primary)', 
               color: 'var(--color-text-primary)',
               border: '1px solid var(--color-border)',
-              borderRadius: '6px',
+              borderRadius: '8px',
               textDecoration: 'none',
               fontWeight: 500,
-              fontSize: '16px'
+              fontSize: '16px',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '8px'
             }}
           >
+            <span>🔍</span>
             Defect Analysis
           </a>
           <a 
             href="/supplier" 
             style={{ 
-              padding: '12px 20px', 
+              padding: '14px 24px', 
               background: 'var(--color-bg-primary)', 
               color: 'var(--color-text-primary)',
               border: '1px solid var(--color-border)',
-              borderRadius: '6px',
+              borderRadius: '8px',
               textDecoration: 'none',
               fontWeight: 500,
-              fontSize: '16px'
+              fontSize: '16px',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '8px'
             }}
           >
+            <span>🏭</span>
             Supplier Quality
           </a>
         </div>
