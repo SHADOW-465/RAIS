@@ -1,0 +1,2 @@
+# Keep this directory in git but not its contents
+# Uploads are stored here but ignored by git
