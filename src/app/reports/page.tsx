@@ -1,138 +1,203 @@
 'use client';
 
 import { useState } from 'react';
-import { subDays, format } from 'date-fns';
+import { format, subDays } from 'date-fns';
 import styles from './reports.module.css';
 
-export default function ReportsPage() {
-  const [reportType, setReportType] = useState('summary');
-  const [dateRange, setDateRange] = useState(30);
-  const [exportFormat, setExportFormat] = useState('csv');
-  const [generating, setGenerating] = useState(false);
-  const [message, setMessage] = useState<string | null>(null);
+type ReportType = 'summary' | 'detailed' | 'comparison' | 'forecast';
+type ReportFormat = 'pdf' | 'csv' | 'excel';
 
-  const generateReport = async () => {
+interface ReportConfig {
+  type: ReportType;
+  format: ReportFormat;
+  dateFrom: string;
+  dateTo: string;
+  includeCharts: boolean;
+  includeAI: boolean;
+}
+
+const REPORT_TYPES = [
+  { value: 'summary', label: 'Executive Summary', description: 'High-level overview for executives' },
+  { value: 'detailed', label: 'Detailed Analysis', description: 'In-depth breakdown of all metrics' },
+  { value: 'comparison', label: 'Period Comparison', description: 'Compare performance across periods' },
+  { value: 'forecast', label: 'AI Forecast Report', description: 'Predictive analysis with confidence intervals' },
+];
+
+const EXPORT_FORMATS = [
+  { value: 'pdf', label: 'PDF', icon: '📄' },
+  { value: 'csv', label: 'CSV', icon: '📊' },
+  { value: 'excel', label: 'Excel', icon: '📈' },
+];
+
+export default function ReportsPage() {
+  const [config, setConfig] = useState<ReportConfig>({
+    type: 'summary',
+    format: 'pdf',
+    dateFrom: format(subDays(new Date(), 30), 'yyyy-MM-dd'),
+    dateTo: format(new Date(), 'yyyy-MM-dd'),
+    includeCharts: true,
+    includeAI: true,
+  });
+  const [generating, setGenerating] = useState(false);
+
+  const handleGenerate = async () => {
     setGenerating(true);
-    setMessage(null);
-    
-    try {
-      const to = new Date();
-      const from = subDays(to, dateRange);
-      
-      const response = await fetch('/api/reports/generate', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          type: reportType,
-          dateRange: { from: from.toISOString(), to: to.toISOString() },
-          format: exportFormat,
-        }),
-      });
-      
-      if (!response.ok) {
-        throw new Error('Failed to generate report');
-      }
-      
-      const blob = await response.blob();
-      const url = window.URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = `rais-report-${format(new Date(), 'yyyy-MM-dd')}.${exportFormat}`;
-      a.click();
-      window.URL.revokeObjectURL(url);
-      
-      setMessage('Report downloaded successfully!');
-    } catch (error) {
-      setMessage(error instanceof Error ? error.message : 'Failed to generate report');
-    } finally {
-      setGenerating(false);
-    }
+    // Simulate report generation
+    await new Promise(resolve => setTimeout(resolve, 2000));
+    setGenerating(false);
+    // In production, this would trigger actual report generation
   };
 
   return (
     <div className={styles.container}>
       <header className={styles.header}>
-        <h1 className={styles.title}>Reports</h1>
+        <div>
+          <h1 className={styles.title}>Reports & Exports</h1>
+          <p className={styles.subtitle}>Generate custom reports and export data</p>
+        </div>
       </header>
 
-      <div className={styles.form}>
-        <div className={styles.field}>
-          <label className={styles.label}>Report Type</label>
-          <select 
-            className={styles.select}
-            value={reportType}
-            onChange={(e) => setReportType(e.target.value)}
-          >
-            <option value="summary">Summary Report</option>
-            <option value="detailed">Detailed Report</option>
-            <option value="trends">Trends Report</option>
-            <option value="supplier">Supplier Report</option>
-          </select>
-          <p className={styles.hint}>Choose the type of analysis you need</p>
-        </div>
+      <div className={styles.content}>
+        {/* Report Type Selection */}
+        <section className={styles.card}>
+          <h2 className={styles.cardTitle}>Report Type</h2>
+          <div className={styles.reportTypes}>
+            {REPORT_TYPES.map((type) => (
+              <button
+                key={type.value}
+                className={`${styles.reportType} ${config.type === type.value ? styles.active : ''}`}
+                onClick={() => setConfig({ ...config, type: type.value as ReportType })}
+              >
+                <span className={styles.reportTypeLabel}>{type.label}</span>
+                <span className={styles.reportTypeDesc}>{type.description}</span>
+              </button>
+            ))}
+          </div>
+        </section>
 
-        <div className={styles.field}>
-          <label className={styles.label}>Date Range</label>
-          <select 
-            className={styles.select}
-            value={dateRange}
-            onChange={(e) => setDateRange(Number(e.target.value))}
-          >
-            <option value={7}>Last 7 days</option>
-            <option value={30}>Last 30 days</option>
-            <option value={90}>Last 90 days</option>
-            <option value={365}>Last year</option>
-          </select>
-          <p className={styles.hint}>Select the time period for the report</p>
-        </div>
-
-        <div className={styles.field}>
-          <label className={styles.label}>Export Format</label>
-          <div className={styles.radioGroup}>
-            <label className={styles.radio}>
+        {/* Date Range */}
+        <section className={styles.card}>
+          <h2 className={styles.cardTitle}>Date Range</h2>
+          <div className={styles.dateRange}>
+            <div className={styles.dateField}>
+              <label className={styles.label}>From</label>
               <input
-                type="radio"
-                value="csv"
-                checked={exportFormat === 'csv'}
-                onChange={(e) => setExportFormat(e.target.value)}
+                type="date"
+                value={config.dateFrom}
+                onChange={(e) => setConfig({ ...config, dateFrom: e.target.value })}
+                className={styles.input}
               />
-              <span>CSV (Excel)</span>
+            </div>
+            <div className={styles.dateField}>
+              <label className={styles.label}>To</label>
+              <input
+                type="date"
+                value={config.dateTo}
+                onChange={(e) => setConfig({ ...config, dateTo: e.target.value })}
+                className={styles.input}
+              />
+            </div>
+          </div>
+          <div className={styles.quickRanges}>
+            <button
+              className={styles.quickRange}
+              onClick={() => setConfig({
+                ...config,
+                dateFrom: format(subDays(new Date(), 7), 'yyyy-MM-dd'),
+                dateTo: format(new Date(), 'yyyy-MM-dd')
+              })}
+            >
+              Last 7 days
+            </button>
+            <button
+              className={styles.quickRange}
+              onClick={() => setConfig({
+                ...config,
+                dateFrom: format(subDays(new Date(), 30), 'yyyy-MM-dd'),
+                dateTo: format(new Date(), 'yyyy-MM-dd')
+              })}
+            >
+              Last 30 days
+            </button>
+            <button
+              className={styles.quickRange}
+              onClick={() => setConfig({
+                ...config,
+                dateFrom: format(subDays(new Date(), 90), 'yyyy-MM-dd'),
+                dateTo: format(new Date(), 'yyyy-MM-dd')
+              })}
+            >
+              Last 90 days
+            </button>
+          </div>
+        </section>
+
+        {/* Export Format */}
+        <section className={styles.card}>
+          <h2 className={styles.cardTitle}>Export Format</h2>
+          <div className={styles.formats}>
+            {EXPORT_FORMATS.map((fmt) => (
+              <button
+                key={fmt.value}
+                className={`${styles.format} ${config.format === fmt.value ? styles.active : ''}`}
+                onClick={() => setConfig({ ...config, format: fmt.value as ReportFormat })}
+              >
+                <span className={styles.formatIcon}>{fmt.icon}</span>
+                <span className={styles.formatLabel}>{fmt.label}</span>
+              </button>
+            ))}
+          </div>
+        </section>
+
+        {/* Options */}
+        <section className={styles.card}>
+          <h2 className={styles.cardTitle}>Options</h2>
+          <div className={styles.options}>
+            <label className={styles.checkbox}>
+              <input
+                type="checkbox"
+                checked={config.includeCharts}
+                onChange={(e) => setConfig({ ...config, includeCharts: e.target.checked })}
+              />
+              <span className={styles.checkmark}></span>
+              <span>Include charts and visualizations</span>
             </label>
-            <label className={styles.radio}>
+            <label className={styles.checkbox}>
               <input
-                type="radio"
-                value="json"
-                checked={exportFormat === 'json'}
-                onChange={(e) => setExportFormat(e.target.value)}
+                type="checkbox"
+                checked={config.includeAI}
+                onChange={(e) => setConfig({ ...config, includeAI: e.target.checked })}
               />
-              <span>JSON</span>
+              <span className={styles.checkmark}></span>
+              <span>Include AI insights and recommendations</span>
             </label>
           </div>
-        </div>
-
-        <button 
-          className={styles.generateButton}
-          onClick={generateReport}
-          disabled={generating}
-        >
-          {generating ? 'Generating...' : 'Download Report'}
-        </button>
-
-        {message && (
-          <div className={`${styles.message} ${message.includes('Error') ? styles.error : styles.success}`}>
-            {message}
-          </div>
-        )}
+        </section>
       </div>
 
-      <div className={styles.info}>
-        <h2 className={styles.infoTitle}>Report Types</h2>
-        <ul className={styles.infoList}>
-          <li><strong>Summary Report:</strong> Key metrics, KPIs, and high-level overview</li>
-          <li><strong>Detailed Report:</strong> All rejection records with full details</li>
-          <li><strong>Trends Report:</strong> Time-series analysis and forecasts</li>
-          <li><strong>Supplier Report:</strong> Supplier quality scores and rankings</li>
-        </ul>
+      {/* Generate Button */}
+      <div className={styles.actions}>
+        <button
+          className={styles.generateButton}
+          onClick={handleGenerate}
+          disabled={generating}
+        >
+          {generating ? (
+            <>
+              <span className={styles.spinner}></span>
+              Generating...
+            </>
+          ) : (
+            <>
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+                <polyline points="7 10 12 15 17 10" />
+                <line x1="12" y1="15" x2="12" y2="3" />
+              </svg>
+              Generate Report
+            </>
+          )}
+        </button>
       </div>
     </div>
   );

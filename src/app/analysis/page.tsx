@@ -12,7 +12,7 @@ import {
   ResponsiveContainer,
   ComposedChart,
 } from 'recharts';
-import { format, subDays } from 'date-fns';
+import { subDays } from 'date-fns';
 import styles from './analysis.module.css';
 
 interface ParetoItem {
@@ -36,19 +36,19 @@ export default function DefectAnalysisPage() {
   async function fetchPareto() {
     setLoading(true);
     setError(null);
-    
+
     try {
       const to = new Date();
       const from = subDays(to, dateRange);
-      
+
       const response = await fetch(
         `/api/analytics/pareto?from=${from.toISOString()}&to=${to.toISOString()}`
       );
-      
+
       if (!response.ok) {
         throw new Error('Failed to fetch pareto data');
       }
-      
+
       const result = await response.json();
       setData(result.items);
       setTotalQuantity(result.totalQuantity);
@@ -62,9 +62,12 @@ export default function DefectAnalysisPage() {
   return (
     <div className={styles.container}>
       <header className={styles.header}>
-        <h1 className={styles.title}>Defect Analysis</h1>
+        <div>
+          <h1 className={styles.title}>Defect Analysis</h1>
+          <p className={styles.subtitle}>Identify root causes of rejection</p>
+        </div>
         <div className={styles.filterBar}>
-          <select 
+          <select
             className={styles.select}
             value={dateRange}
             onChange={(e) => setDateRange(Number(e.target.value))}
@@ -81,64 +84,71 @@ export default function DefectAnalysisPage() {
       <div className={styles.contentGrid}>
         {/* Pareto Chart Section */}
         <section className={styles.card}>
-          <h2 className={styles.cardTitle}>Defect Pareto</h2>
-          <div style={{ height: '350px', marginTop: '20px' }}>
+          <div className={styles.cardHeader}>
+            <h2 className={styles.cardTitle}>Defect Pareto Chart</h2>
+            <span className={styles.cardBadge}>Top Contributors</span>
+          </div>
+          <div className={styles.chartContainer}>
             {loading ? (
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%' }}>
-                <div>Loading...</div>
+              <div className={styles.loadingState}>
+                <div className={styles.spinner}></div>
+                <span>Loading...</span>
               </div>
             ) : error ? (
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%', color: 'var(--color-danger)' }}>
-                <div>Error: {error}</div>
+              <div className={styles.errorState}>
+                <span>Error: {error}</span>
               </div>
             ) : data.length === 0 ? (
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%' }}>
-                <div>No data available</div>
+              <div className={styles.emptyState}>
+                <span>No data available</span>
               </div>
             ) : (
               <ResponsiveContainer width="100%" height="100%">
-                <ComposedChart data={data} margin={{ top: 20, right: 30, left: 20, bottom: 60 }}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#E6E8EB" />
-                  <XAxis 
-                    dataKey="name" 
-                    stroke="#6B7280"
+                <ComposedChart data={data} margin={{ top: 20, right: 30, left: 20, bottom: 80 }}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#E6E8EB" vertical={false} />
+                  <XAxis
+                    dataKey="name"
+                    stroke="#9CA3AF"
                     tick={{ fontSize: 11 }}
                     angle={-45}
                     textAnchor="end"
                     height={80}
+                    axisLine={{ stroke: '#E6E8EB' }}
+                    tickLine={false}
                   />
-                  <YAxis 
+                  <YAxis
                     yAxisId="left"
-                    stroke="#6B7280"
+                    stroke="#9CA3AF"
                     tick={{ fontSize: 12 }}
+                    axisLine={false}
+                    tickLine={false}
                   />
-                  <YAxis 
+                  <YAxis
                     yAxisId="right"
                     orientation="right"
-                    stroke="#6B7280"
+                    stroke="#9CA3AF"
                     tick={{ fontSize: 12 }}
                     domain={[0, 100]}
                     tickFormatter={(value) => `${value}%`}
+                    axisLine={false}
+                    tickLine={false}
                   />
-                  <Tooltip 
-                    contentStyle={{ 
+                  <Tooltip
+                    contentStyle={{
                       backgroundColor: '#FFFFFF',
                       border: '1px solid #E6E8EB',
                       borderRadius: '8px',
                       fontSize: '14px',
+                      boxShadow: '0 4px 12px rgba(0,0,0,0.08)'
                     }}
                   />
-                  
-                  {/* Bar chart for count */}
                   <Bar
                     yAxisId="left"
                     dataKey="value"
-                    fill="#D64545"
+                    fill="#DC2626"
                     radius={[4, 4, 0, 0]}
                     name="Count"
                   />
-                  
-                  {/* Line chart for cumulative percentage */}
                   <Line
                     yAxisId="right"
                     type="monotone"
@@ -152,58 +162,55 @@ export default function DefectAnalysisPage() {
               </ResponsiveContainer>
             )}
           </div>
-          <p style={{ marginTop: '1rem', color: '#6B7280', fontSize: '14px' }}>
-            Total rejections: {totalQuantity.toLocaleString()}
-          </p>
+          <div className={styles.chartFooter}>
+            <span className={styles.totalLabel}>Total rejections:</span>
+            <span className={styles.totalValue}>{totalQuantity.toLocaleString()}</span>
+          </div>
         </section>
 
         {/* Top Defects Table */}
         <section className={styles.card}>
-          <h2 className={styles.cardTitle}>Top Defects Details</h2>
+          <div className={styles.cardHeader}>
+            <h2 className={styles.cardTitle}>Top Defects Details</h2>
+          </div>
           {loading ? (
-            <div style={{ padding: '20px', textAlign: 'center' }}>Loading...</div>
+            <div className={styles.tableLoading}>Loading...</div>
           ) : error ? (
-            <div style={{ padding: '20px', textAlign: 'center', color: 'var(--color-danger)' }}>
-              Error: {error}
-            </div>
+            <div className={styles.tableError}>Error: {error}</div>
           ) : (
-            <table className={styles.table}>
-              <thead>
-                <tr>
-                  <th>Defect</th>
-                  <th>Count</th>
-                  <th>Contribution</th>
-                  <th>Cumulative</th>
-                </tr>
-              </thead>
-              <tbody>
-                {data.slice(0, 10).map((item, index) => (
-                  <tr key={item.name}>
-                    <td>
-                      <span style={{ 
-                        display: 'inline-block',
-                        width: '24px',
-                        height: '24px',
-                        background: index < 3 ? '#D64545' : '#E5E7EB',
-                        color: index < 3 ? 'white' : '#374151',
-                        borderRadius: '50%',
-                        textAlign: 'center',
-                        lineHeight: '24px',
-                        fontSize: '12px',
-                        fontWeight: 'bold',
-                        marginRight: '8px'
-                      }}>
-                        {index + 1}
-                      </span>
-                      {item.name}
-                    </td>
-                    <td>{item.value.toLocaleString()}</td>
-                    <td>{item.percentage}%</td>
-                    <td>{item.cumulativePercentage}%</td>
+            <div className={styles.tableWrapper}>
+              <table className={styles.table}>
+                <thead>
+                  <tr>
+                    <th>Defect</th>
+                    <th className={styles.alignRight}>Count</th>
+                    <th className={styles.alignRight}>Contribution</th>
+                    <th className={styles.alignRight}>Cumulative</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
+                </thead>
+                <tbody>
+                  {data.slice(0, 10).map((item, index) => (
+                    <tr key={item.name}>
+                      <td>
+                        <div className={styles.defectCell}>
+                          <span className={`${styles.rank} ${index < 3 ? styles.rankTop : ''}`}>
+                            {index + 1}
+                          </span>
+                          <span className={styles.defectName}>{item.name}</span>
+                        </div>
+                      </td>
+                      <td className={styles.alignRight}>{item.value.toLocaleString()}</td>
+                      <td className={styles.alignRight}>
+                        <span className={styles.percentage}>{item.percentage}%</span>
+                      </td>
+                      <td className={styles.alignRight}>
+                        <span className={styles.cumulative}>{item.cumulativePercentage}%</span>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
           )}
         </section>
       </div>

@@ -2,14 +2,14 @@
 
 import { useState, useEffect } from 'react';
 import {
-  LineChart,
-  Line,
+  AreaChart,
+  Area,
   XAxis,
   YAxis,
   CartesianGrid,
   Tooltip,
   ResponsiveContainer,
-  ReferenceArea,
+  ReferenceLine,
 } from 'recharts';
 import { format, subDays } from 'date-fns';
 import styles from './trends.module.css';
@@ -45,19 +45,19 @@ export default function RejectionTrendsPage() {
   async function fetchTrends() {
     setLoading(true);
     setError(null);
-    
+
     try {
       const to = new Date();
       const from = subDays(to, dateRange);
-      
+
       const response = await fetch(
         `/api/analytics/trends?from=${from.toISOString()}&to=${to.toISOString()}&granularity=day`
       );
-      
+
       if (!response.ok) {
         throw new Error('Failed to fetch trends');
       }
-      
+
       const result = await response.json();
       setData(result.series);
       setComparison(result.comparison);
@@ -81,12 +81,12 @@ export default function RejectionTrendsPage() {
       row.totalCost,
       row.rejectionRate,
     ]);
-    
+
     const csvContent = [
       headers.join(','),
       ...rows.map(row => row.join(',')),
     ].join('\n');
-    
+
     const blob = new Blob([csvContent], { type: 'text/csv' });
     const url = window.URL.createObjectURL(blob);
     const a = document.createElement('a');
@@ -99,12 +99,15 @@ export default function RejectionTrendsPage() {
   return (
     <div className={styles.container}>
       <header className={styles.header}>
-        <h1 className={styles.title}>Rejection Trends</h1>
+        <div>
+          <h1 className={styles.title}>Rejection Trends</h1>
+          <p className={styles.subtitle}>Track quality metrics over time</p>
+        </div>
         <div className={styles.controls}>
-          <select 
-            value={dateRange} 
+          <select
+            value={dateRange}
             onChange={(e) => setDateRange(Number(e.target.value))}
-            style={{ padding: '10px 16px', fontSize: '16px', borderRadius: '6px', border: '1px solid var(--color-border)' }}
+            className={styles.select}
           >
             <option value={7}>Last 7 days</option>
             <option value={30}>Last 30 days</option>
@@ -116,127 +119,117 @@ export default function RejectionTrendsPage() {
 
       {/* Comparison Stats */}
       {comparison && (
-        <div style={{ 
-          display: 'grid', 
-          gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', 
-          gap: '16px',
-          marginBottom: '24px'
-        }}>
-          <div style={{ 
-            padding: '16px', 
-            background: 'var(--color-bg-primary)', 
-            borderRadius: '8px',
-            border: '1px solid var(--color-border)'
-          }}>
-            <div style={{ fontSize: '14px', color: 'var(--color-text-secondary)' }}>Current Period</div>
-            <div style={{ fontSize: '24px', fontWeight: 'bold' }}>{comparison.currentPeriod.total.toLocaleString()}</div>
-            <div style={{ fontSize: '14px' }}>rejections</div>
+        <div className={styles.statsGrid}>
+          <div className={styles.statCard}>
+            <div className={styles.statLabel}>Current Period</div>
+            <div className={styles.statValue}>{comparison.currentPeriod.total.toLocaleString()}</div>
+            <div className={styles.statSubtext}>rejections</div>
           </div>
-          <div style={{ 
-            padding: '16px', 
-            background: 'var(--color-bg-primary)', 
-            borderRadius: '8px',
-            border: '1px solid var(--color-border)'
-          }}>
-            <div style={{ fontSize: '14px', color: 'var(--color-text-secondary)' }}>Previous Period</div>
-            <div style={{ fontSize: '24px', fontWeight: 'bold' }}>{comparison.previousPeriod.total.toLocaleString()}</div>
-            <div style={{ fontSize: '14px' }}>rejections</div>
+          <div className={styles.statCard}>
+            <div className={styles.statLabel}>Previous Period</div>
+            <div className={styles.statValue}>{comparison.previousPeriod.total.toLocaleString()}</div>
+            <div className={styles.statSubtext}>rejections</div>
           </div>
-          <div style={{ 
-            padding: '16px', 
-            background: 'var(--color-bg-primary)', 
-            borderRadius: '8px',
-            border: '1px solid var(--color-border)'
-          }}>
-            <div style={{ fontSize: '14px', color: 'var(--color-text-secondary)' }}>Change</div>
-            <div style={{ 
-              fontSize: '24px', 
-              fontWeight: 'bold',
-              color: comparison.change.percentage > 0 ? 'var(--color-danger)' : 'var(--color-success)'
-            }}>
+          <div className={styles.statCard}>
+            <div className={styles.statLabel}>Change</div>
+            <div className={`${styles.statValue} ${comparison.change.percentage > 0 ? styles.statDanger : styles.statSuccess}`}>
               {comparison.change.percentage > 0 ? '+' : ''}{comparison.change.percentage}%
             </div>
-            <div style={{ fontSize: '14px' }}>
+            <div className={styles.statSubtext}>
               {comparison.change.absolute > 0 ? '+' : ''}{comparison.change.absolute} rejections
             </div>
           </div>
         </div>
       )}
 
-      <main className={styles.chartContainer}>
-        {loading ? (
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%' }}>
-            <div>Loading trends...</div>
-          </div>
-        ) : error ? (
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%', color: 'var(--color-danger)' }}>
-            <div>Error: {error}</div>
-          </div>
-        ) : data.length === 0 ? (
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%' }}>
-            <div>No data available for the selected period</div>
-          </div>
-        ) : (
-          <ResponsiveContainer width="100%" height={400}>
-            <LineChart data={data} margin={{ top: 20, right: 30, left: 20, bottom: 20 }}>
-              <CartesianGrid strokeDasharray="3 3" stroke="#E6E8EB" />
-              <XAxis 
-                dataKey="date" 
-                tickFormatter={formatDate}
-                stroke="#6B7280"
-                tick={{ fontSize: 12 }}
-              />
-              <YAxis 
-                stroke="#6B7280"
-                tick={{ fontSize: 12 }}
-              />
-              <Tooltip 
-                contentStyle={{ 
-                  backgroundColor: '#FFFFFF',
-                  border: '1px solid #E6E8EB',
-                  borderRadius: '8px',
-                  fontSize: '14px',
-                }}
-                labelFormatter={(label) => formatDate(label as string)}
-              />
-              
-              {/* Confidence band - show only if we have confidence data */}
-              {data.some(d => d.confidenceLower !== undefined) && (
-                <ReferenceArea
-                  x1={data[data.length - 1]?.date}
-                  x2={data[data.length - 1]?.date}
-                  y1={data[data.length - 1]?.confidenceLower}
-                  y2={data[data.length - 1]?.confidenceUpper}
-                  fill="#D1FAE5"
-                  fillOpacity={0.5}
+      <div className={styles.chartCard}>
+        <div className={styles.chartHeader}>
+          <h2 className={styles.chartTitle}>Daily Rejection Count</h2>
+        </div>
+        <div className={styles.chartContainer}>
+          {loading ? (
+            <div className={styles.loadingState}>
+              <div className={styles.spinner}></div>
+              <span>Loading trends...</span>
+            </div>
+          ) : error ? (
+            <div className={styles.errorState}>
+              <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <circle cx="12" cy="12" r="10" />
+                <line x1="12" y1="8" x2="12" y2="12" />
+                <line x1="12" y1="16" x2="12.01" y2="16" />
+              </svg>
+              <span>Error: {error}</span>
+            </div>
+          ) : data.length === 0 ? (
+            <div className={styles.emptyState}>
+              <span>No data available for the selected period</span>
+            </div>
+          ) : (
+            <ResponsiveContainer width="100%" height={400}>
+              <AreaChart data={data} margin={{ top: 20, right: 30, left: 20, bottom: 20 }}>
+                <defs>
+                  <linearGradient id="colorRejection" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="5%" stopColor="#1F9D55" stopOpacity={0.2} />
+                    <stop offset="95%" stopColor="#1F9D55" stopOpacity={0} />
+                  </linearGradient>
+                </defs>
+                <CartesianGrid strokeDasharray="3 3" stroke="#E6E8EB" vertical={false} />
+                <XAxis
+                  dataKey="date"
+                  tickFormatter={formatDate}
+                  stroke="#9CA3AF"
+                  tick={{ fontSize: 12 }}
+                  axisLine={{ stroke: '#E6E8EB' }}
+                  tickLine={false}
                 />
-              )}
-              
-              {/* Actual trend line */}
-              <Line
-                type="monotone"
-                dataKey="rejectionCount"
-                stroke="#1F9D55"
-                strokeWidth={3}
-                dot={{ fill: '#1F9D55', strokeWidth: 0, r: 4 }}
-                activeDot={{ r: 6, stroke: '#1F9D55', strokeWidth: 2, fill: '#fff' }}
-                name="Rejections"
-              />
-            </LineChart>
-          </ResponsiveContainer>
-        )}
-        
-        <p style={{ marginTop: '1rem', color: '#6B7280', fontSize: '14px' }}>
-          Showing daily rejection counts. Click and drag to zoom, hover for details.
+                <YAxis
+                  stroke="#9CA3AF"
+                  tick={{ fontSize: 12 }}
+                  axisLine={false}
+                  tickLine={false}
+                />
+                <Tooltip
+                  contentStyle={{
+                    backgroundColor: '#FFFFFF',
+                    border: '1px solid #E6E8EB',
+                    borderRadius: '8px',
+                    fontSize: '14px',
+                    boxShadow: '0 4px 12px rgba(0,0,0,0.08)'
+                  }}
+                  labelFormatter={(label) => formatDate(label as string)}
+                />
+                <ReferenceLine y={comparison?.currentPeriod?.avgPerDay || 0} stroke="#DC2626" strokeDasharray="3 3" />
+                <Area
+                  type="monotone"
+                  dataKey="rejectionCount"
+                  stroke="#1F9D55"
+                  strokeWidth={2.5}
+                  fill="url(#colorRejection)"
+                  dot={false}
+                  activeDot={{ r: 6, stroke: '#1F9D55', strokeWidth: 2, fill: '#fff' }}
+                  name="Rejections"
+                />
+              </AreaChart>
+            </ResponsiveContainer>
+          )}
+        </div>
+        <p className={styles.chartHint}>
+          Showing daily rejection counts. Hover for details. Red dashed line shows average.
         </p>
-      </main>
+      </div>
 
       <div className={styles.actions}>
-        <button 
+        <button
           className={styles.button}
           onClick={downloadCSV}
           disabled={loading || data.length === 0}
         >
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+            <polyline points="7 10 12 15 17 10" />
+            <line x1="12" y1="15" x2="12" y2="3" />
+          </svg>
           Download CSV
         </button>
       </div>

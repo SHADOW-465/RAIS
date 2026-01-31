@@ -1,0 +1,175 @@
+.header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0 32px;
+    height: var(--topnav-height, 64px);
+    background-color: var(--color-bg-primary);
+    border-bottom: 1px solid var(--color-border);
+    position: sticky;
+    top: 0;
+    z-index: 40;
+}
+
+/* Tab Navigation */
+.tabs {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.tab {
+    padding: 8px 16px;
+    font-size: 14px;
+    font-weight: 500;
+    color: var(--color-text-tertiary);
+    text-decoration: none;
+    border-radius: 6px;
+    transition: all 0.2s ease-out;
+    cursor: pointer;
+}
+
+.tab:hover {
+    color: var(--color-text-primary);
+    background-color: var(--color-bg-secondary);
+}
+
+.tab.active {
+    color: var(--color-text-primary);
+    font-weight: 600;
+}
+
+/* Controls Section */
+.controls {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+}
+
+/* Factory Selector */
+.factorySelector {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 12px;
+    background-color: var(--color-bg-secondary);
+    border: 1px solid var(--color-border);
+    border-radius: 8px;
+    color: var(--color-text-secondary);
+}
+
+.factorySelector svg {
+    flex-shrink: 0;
+}
+
+.select {
+    border: none;
+    background: transparent;
+    font-size: 14px;
+    font-weight: 500;
+    color: var(--color-text-primary);
+    cursor: pointer;
+    padding-right: 16px;
+}
+
+.select:focus {
+    outline: none;
+}
+
+/* Stats Badge */
+.statBadge {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 12px;
+    background-color: var(--color-bg-tertiary);
+    border-radius: 6px;
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--color-text-primary);
+}
+
+.statBadge svg {
+    color: var(--color-text-tertiary);
+}
+
+/* Icon Button */
+.iconButton {
+    position: relative;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 40px;
+    height: 40px;
+    border: none;
+    background-color: transparent;
+    border-radius: 8px;
+    color: var(--color-text-secondary);
+    cursor: pointer;
+    transition: all 0.2s ease-out;
+}
+
+.iconButton:hover {
+    background-color: var(--color-bg-secondary);
+    color: var(--color-text-primary);
+}
+
+.notificationDot {
+    position: absolute;
+    top: 8px;
+    right: 10px;
+    width: 8px;
+    height: 8px;
+    background-color: var(--color-danger);
+    border-radius: 50%;
+    border: 2px solid var(--color-bg-primary);
+}
+
+/* User Avatar */
+.userAvatar {
+    width: 40px;
+    height: 40px;
+    border-radius: 50%;
+    overflow: hidden;
+    background: linear-gradient(135deg, #6366F1 0%, #4F46E5 100%);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    transition: transform 0.2s ease-out;
+}
+
+.userAvatar:hover {
+    transform: scale(1.05);
+}
+
+.userAvatar span {
+    color: white;
+    font-size: 14px;
+    font-weight: 600;
+}
+
+.userAvatar img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+}
+
+/* Responsive */
+@media (max-width: 768px) {
+    .header {
+        padding: 0 16px;
+    }
+
+    .tabs {
+        display: none;
+    }
+
+    .factorySelector {
+        display: none;
+    }
+
+    .statBadge {
+        display: none;
+    }
+}
