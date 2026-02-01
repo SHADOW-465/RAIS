@@ -1,276 +1,198 @@
-import { kpiEngine } from '@/lib/analytics';
-import { geminiService } from '@/lib/ai';
-import AttentionCard from '@/components/dashboard/AttentionCard';
-import MetricCard from '@/components/dashboard/MetricCard';
-import IssueList from '@/components/dashboard/IssueList';
-import TrendChart from '@/components/dashboard/TrendChart';
-import ContributionCard from '@/components/dashboard/ContributionCard';
-import DataTable from '@/components/dashboard/DataTable';
+import { Suspense } from 'react';
+import TopBar from '@/components/TopBar';
+import KPICard from '@/components/KPICard';
+import RiskBadge, { calculateRiskLevel } from '@/components/RiskBadge';
 import styles from './page.module.css';
 import { subDays, format } from 'date-fns';
 
-const DEFAULT_PRODUCED_VOLUME = 100000;
+// Mock data - will be replaced with Supabase data
+const MOCK_BATCHES = [
+  { id: 'BT-2025-089', product: 'Valve Assembly', defectType: 'Leak, Misalign', rejected: 45, produced: 1000, stagesFailed: 3 },
+  { id: 'BT-2025-087', product: 'Pump Housing', defectType: 'Crack', rejected: 18, produced: 1500, stagesFailed: 2 },
+  { id: 'BT-2025-085', product: 'Connector', defectType: 'Minor dent', rejected: 12, produced: 2000, stagesFailed: 1 },
+  { id: 'BT-2025-084', product: 'Seal Ring', defectType: 'Scratch', rejected: 8, produced: 1200, stagesFailed: 1 },
+  { id: 'BT-2025-083', product: 'Gasket', defectType: 'Color mismatch', rejected: 5, produced: 1800, stagesFailed: 1 },
+];
 
-async function getDashboardData() {
-  const to = new Date();
-  const from = subDays(to, 30);
+const MOCK_KPI_DATA = {
+  batchesAtRisk: { value: '12', delta: '2', direction: 'up' as const, isGood: false },
+  avgDefectsPerBatch: { value: '3.2', delta: '0.5', direction: 'up' as const, isGood: false },
+  scrapProbability: { value: '4.5%', delta: '1.2%', direction: 'up' as const, isGood: false },
+  financialLoss: { value: '₹11.1M', delta: '₹2.3M', direction: 'up' as const, isGood: false },
+};
 
-  try {
-    const [rejectionRate, costImpact, topRisk, forecast] = await Promise.all([
-      kpiEngine.calculateRejectionRate(from, to, DEFAULT_PRODUCED_VOLUME),
-      kpiEngine.calculateCostImpact(from, to),
-      kpiEngine.identifyTopRisk(from, to),
-      kpiEngine.generateForecast(30),
-    ]);
+function ExecutiveOverviewContent() {
+  const today = new Date();
+  const from = subDays(today, 30);
 
-    const aiSummary = await geminiService.generateHealthSummary({
-      rejectionRate,
-      topRisk,
-      costImpact,
-    });
-
-    // Generate trend chart data
-    const trendData = [];
-    for (let i = 30; i >= 0; i--) {
-      const date = subDays(to, i);
-      const baseValue = 2.5 + Math.random() * 1.5;
-      trendData.push({
-        date: format(date, 'yyyy-MM-dd'),
-        value: Math.round(baseValue * 10) / 10,
-      });
-    }
-
-    return {
-      attention: {
-        title: 'Quality Attention Required',
-        description: aiSummary.summary || `Leak defects from <strong>Supplier B</strong> are driving the rejection rate up, more at <strong>${rejectionRate.current.toFixed(0)} defanges</strong>.`,
-      },
-      issues: [
-        {
-          id: '1',
-          line: 'Line 3',
-          defect: 'Leak Defects',
-          delta: `${Math.abs(rejectionRate.delta)}%`,
-          deltaDirection: rejectionRate.delta > 0 ? 'up' as const : 'down' as const,
-          status: 'OPEN' as const,
-          aiConfidence: 'AI Confidence',
-        },
-        {
-          id: '2',
-          line: 'Misalignment',
-          defect: 'Assembly',
-          delta: '28%',
-          deltaDirection: 'up' as const,
-          status: 'OPEN' as const,
-          aiConfidence: 'AI Confidence',
-        },
-        {
-          id: '3',
-          line: 'Supplier Quality',
-          defect: 'Supplier B issue detected',
-          delta: `${topRisk.contribution}%`,
-          deltaDirection: 'up' as const,
-          status: 'HIGH' as const,
-        },
-      ],
-      trendData,
-      trendSummary: `Statistical Summary: <strong>Leak defects from Supplier B</strong> are driving the rejection rate up, now at <strong>${rejectionRate.current}%</strong>, projected to <strong>${forecast.nextMonth}%</strong> next month, potentially causing <strong>~$${(costImpact.projection / 1000000).toFixed(1)}M</strong> in losses.`,
-      contribution: {
-        Line: [
-          { label: 'Line 3', value: 35.2, color: '#1a1f2e' },
-          { label: 'Line 1', value: 23.3, color: '#2563EB' },
-          { label: 'Line 2', value: 14.5, color: '#6366F1' },
-        ],
-        Defect: [
-          { label: 'Leak', value: 31.2, color: '#DC2626' },
-          { label: 'Misalign', value: 28.1, color: '#F59E0B' },
-          { label: 'Crack', value: 15.4, color: '#6366F1' },
-        ],
-        Supplier: [
-          { label: 'Supplier B', value: 42.5, color: '#DC2626' },
-          { label: 'Supplier A', value: 31.2, color: '#2563EB' },
-          { label: 'Supplier C', value: 18.8, color: '#1F9D55' },
-        ],
-      },
-      metrics: {
-        rejectionRate: {
-          value: `${rejectionRate.current}%`,
-          delta: `${Math.abs(rejectionRate.delta)}%`,
-          direction: rejectionRate.delta > 0 ? 'up' as const : 'down' as const,
-          isGood: rejectionRate.isGood,
-          subtext: 'Last 30 month',
-        },
-        unitsRejected: {
-          value: '11,350',
-          delta: '21.7%',
-          direction: 'up' as const,
-          isGood: false,
-          subtext: 'Last 30 days',
-        },
-        costActual: {
-          value: '₹ 9,430,000',
-          delta: '25.3%',
-          direction: 'up' as const,
-          isGood: false,
-          subtext: 'Last 30 days last 5 ds',
-          secondary: 'Projected day',
-        },
-        costProjected: {
-          value: '₹11.1M',
-          delta: '5.8%',
-          direction: 'up' as const,
-          isGood: false,
-          subtext: 'Next month forecast: 3.8%',
-          secondary: 'Projected',
-        },
-      },
-      tableData: [
-        {
-          id: '1',
-          line: 'Line 3',
-          supplier: 'Supplier B (Leak)',
-          unitsProduced: 11760,
-          unitsRejected: 58788,
-          rejectionRate: 24.2,
-          trendDirection: 'up' as const,
-          costImpact: 930,
-        },
-        {
-          id: '2',
-          line: 'Line 1',
-          supplier: 'Assembly (Misalignment)',
-          unitsProduced: 30000,
-          unitsRejected: 52573,
-          rejectionRate: 13.6,
-          trendDirection: 'up' as const,
-          costImpact: 930,
-        },
-        {
-          id: '3',
-          line: 'Line 1',
-          supplier: 'Dav',
-          unitsProduced: 32600,
-          unitsRejected: 39689,
-          rejectionRate: 28.2,
-          trendDirection: 'up' as const,
-          costImpact: 930,
-        },
-      ],
-      period: {
-        from: format(from, 'MMM d'),
-        to: format(to, 'MMM d, yyyy'),
-      },
-    };
-  } catch (error) {
-    console.error('Dashboard data fetch error:', error);
-    // Return fallback data
-    return {
-      attention: {
-        title: 'Quality Attention Required',
-        description: 'Unable to load current data. Please check your connection.',
-      },
-      issues: [],
-      trendData: [],
-      trendSummary: '',
-      contribution: { Line: [], Defect: [], Supplier: [] },
-      metrics: {
-        rejectionRate: { value: 'N/A', delta: '0%', direction: 'neutral' as const, isGood: true, subtext: 'Last 30 days' },
-        unitsRejected: { value: 'N/A', delta: '0%', direction: 'neutral' as const, isGood: true, subtext: 'Last 30 days' },
-        costActual: { value: 'N/A', delta: '0%', direction: 'neutral' as const, isGood: true, subtext: 'Last 30 days' },
-        costProjected: { value: 'N/A', delta: '0%', direction: 'neutral' as const, isGood: true, subtext: 'Forecast' },
-      },
-      tableData: [],
-      period: { from: '', to: '' },
-    };
-  }
-}
-
-export default async function DashboardPage() {
-  const data = await getDashboardData();
+  // Calculate high risk batches
+  const highRiskBatches = MOCK_BATCHES.filter(batch => {
+    const rate = batch.rejected / batch.produced;
+    return calculateRiskLevel(rate) === 'HIGH';
+  });
 
   return (
     <div className={styles.container}>
-      {/* Quality Attention Required */}
-      <AttentionCard
-        title={data.attention.title}
-        description={data.attention.description}
+      <TopBar
+        title="Executive Overview"
+        subtitle="Monitor manufacturing quality and batch risk status"
+        userName="General Manager"
       />
 
-      {/* Main 3-Column Grid */}
-      <div className={styles.mainGrid}>
-        {/* Left: Issue List */}
-        <IssueList title="Rejection Rate Trend" issues={data.issues} />
+      <main className={styles.main}>
+        {/* Section 1: KPI Summary Cards */}
+        <section className={styles.kpiSection}>
+          <div className={styles.kpiRow}>
+            <KPICard
+              value={MOCK_KPI_DATA.batchesAtRisk.value}
+              label="Batches at Risk"
+              delta={{
+                value: `${MOCK_KPI_DATA.batchesAtRisk.delta} new`,
+                direction: MOCK_KPI_DATA.batchesAtRisk.direction,
+                isGood: MOCK_KPI_DATA.batchesAtRisk.isGood,
+              }}
+              subtext="Require immediate attention"
+              variant="alert"
+            />
+            <KPICard
+              value={MOCK_KPI_DATA.avgDefectsPerBatch.value}
+              label="Avg Defects per Batch"
+              delta={{
+                value: `${MOCK_KPI_DATA.avgDefectsPerBatch.delta} vs last period`,
+                direction: MOCK_KPI_DATA.avgDefectsPerBatch.direction,
+                isGood: MOCK_KPI_DATA.avgDefectsPerBatch.isGood,
+              }}
+              subtext="Industry avg: 2.1"
+            />
+            <KPICard
+              value={MOCK_KPI_DATA.scrapProbability.value}
+              label="Scrap Probability"
+              delta={{
+                value: `${MOCK_KPI_DATA.scrapProbability.delta} increase`,
+                direction: MOCK_KPI_DATA.scrapProbability.direction,
+                isGood: MOCK_KPI_DATA.scrapProbability.isGood,
+              }}
+              subtext="Based on rejection trends"
+            />
+            <KPICard
+              value={MOCK_KPI_DATA.financialLoss.value}
+              label="Potential Financial Loss"
+              delta={{
+                value: `${MOCK_KPI_DATA.financialLoss.delta} projected`,
+                direction: MOCK_KPI_DATA.financialLoss.direction,
+                isGood: MOCK_KPI_DATA.financialLoss.isGood,
+              }}
+              subtext="Next 30 days forecast"
+            />
+          </div>
+        </section>
 
-        {/* Center: Trend Chart */}
-        <TrendChart
-          title="Rejection Rate Trend"
-          data={data.trendData}
-          dateRange="Last 30 days"
-          summary={data.trendSummary}
-          linkText="View Rejection Trends"
-          linkHref="/trends"
-        />
+        {/* Section 2 & 3: High Risk Batch List + Insight Panel */}
+        <section className={styles.batchSection}>
+          {/* High Risk Batch List - 8 columns */}
+          <div className={styles.batchListContainer}>
+            <div className={styles.sectionHeader}>
+              <h2 className={styles.sectionTitle}>High Risk Batch List</h2>
+              <div className={styles.timeFilter}>
+                <button className={`${styles.filterButton} ${styles.filterActive}`}>Past 7 Days</button>
+                <button className={styles.filterButton}>30 Days</button>
+                <button className={styles.filterButton}>90 Days</button>
+              </div>
+            </div>
 
-        {/* Right: Contribution Card */}
-        <ContributionCard
-          title="Rejection Contribution"
-          tabs={['Line', 'Defect', 'Supplier']}
-          data={data.contribution}
-          linkText="View Defect Analysis"
-          linkHref="/analysis"
-          summary="Last 30 Summary Dec, My = 225"
-        />
-      </div>
+            <div className={styles.tableCard}>
+              <table className={styles.table}>
+                <thead>
+                  <tr>
+                    <th>Batch ID</th>
+                    <th>Product</th>
+                    <th>Key Defect Type</th>
+                    <th>Risk Level</th>
+                    <th>Action</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {MOCK_BATCHES.map((batch) => {
+                    const rejectionRate = batch.rejected / batch.produced;
+                    const riskLevel = calculateRiskLevel(rejectionRate);
+                    
+                    return (
+                      <tr key={batch.id} className={styles.tableRow}>
+                        <td className={styles.batchId}>{batch.id}</td>
+                        <td className={styles.product}>{batch.product}</td>
+                        <td className={styles.defectType}>{batch.defectType}</td>
+                        <td className={styles.riskCell}>
+                          <RiskBadge level={riskLevel} />
+                        </td>
+                        <td className={styles.actionCell}>
+                          <button className={styles.actionButton} aria-label={`Inspect batch ${batch.id}`}>
+                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                              <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" />
+                              <circle cx="12" cy="12" r="3" />
+                            </svg>
+                          </button>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          </div>
 
-      {/* Section Header */}
-      <div className={styles.sectionHeader}>
-        <h2 className={styles.sectionTitle}>Batch / Line Rejection Overview</h2>
-      </div>
+          {/* Insight Panel - 4 columns */}
+          <div className={styles.insightPanel}>
+            <div className={styles.insightCard}>
+              <div className={styles.insightIcon}>
+                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                  <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z" />
+                  <line x1="12" y1="9" x2="12" y2="13" />
+                  <line x1="12" y1="17" x2="12.01" y2="17" />
+                </svg>
+              </div>
+              <h3 className={styles.insightTitle}>Quality Alert</h3>
+              <p className={styles.insightText}>
+                <strong>45% failure rate</strong> detected in valve assembly batches. 
+                Leak defects from Supplier B are driving the rejection rate up.
+              </p>
+              <button className={styles.insightCta}>
+                Inspect Batch #BT-2025-089
+              </button>
+            </div>
 
-      {/* KPI Cards Grid */}
-      <div className={styles.kpiGrid}>
-        <MetricCard
-          value={data.metrics.rejectionRate.value}
-          delta={{
-            value: data.metrics.rejectionRate.delta,
-            direction: data.metrics.rejectionRate.direction,
-            isGood: data.metrics.rejectionRate.isGood,
-          }}
-          subtext={data.metrics.rejectionRate.subtext}
-        />
-        <MetricCard
-          value={data.metrics.unitsRejected.value}
-          delta={{
-            value: data.metrics.unitsRejected.delta,
-            direction: data.metrics.unitsRejected.direction,
-            isGood: data.metrics.unitsRejected.isGood,
-          }}
-          subtext={data.metrics.unitsRejected.subtext}
-        />
-        <MetricCard
-          value={data.metrics.costActual.value}
-          delta={{
-            value: data.metrics.costActual.delta,
-            direction: data.metrics.costActual.direction,
-            isGood: data.metrics.costActual.isGood,
-          }}
-          subtext={data.metrics.costActual.subtext}
-          secondary={data.metrics.costActual.secondary}
-        />
-        <MetricCard
-          value={data.metrics.costProjected.value}
-          delta={{
-            value: data.metrics.costProjected.delta,
-            direction: data.metrics.costProjected.direction,
-            isGood: data.metrics.costProjected.isGood,
-          }}
-          subtext={data.metrics.costProjected.subtext}
-          secondary={data.metrics.costProjected.secondary}
-        />
-      </div>
+            {/* Secondary insight */}
+            <div className={`${styles.insightCard} ${styles.insightSecondary}`}>
+              <div className={`${styles.insightIcon} ${styles.insightIconSecondary}`}>
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                  <circle cx="12" cy="12" r="10" />
+                  <line x1="12" y1="16" x2="12" y2="12" />
+                  <line x1="12" y1="8" x2="12.01" y2="8" />
+                </svg>
+              </div>
+              <h3 className={styles.insightTitle}>Recommendation</h3>
+              <p className={styles.insightText}>
+                Consider increasing sampling rate for Assembly stage to catch defects earlier.
+              </p>
+              <button className={`${styles.insightCta} ${styles.insightCtaSecondary}`}>
+                Review Process
+              </button>
+            </div>
+          </div>
+        </section>
 
-      {/* Data Table */}
-      <DataTable title="Batch / Line / Supplier" rows={data.tableData} />
+        {/* Date Range Footer */}
+        <footer className={styles.dateFooter}>
+          <span>Data period: {format(from, 'MMM d')} - {format(today, 'MMM d, yyyy')}</span>
+        </footer>
+      </main>
     </div>
+  );
+}
+
+export default function ExecutiveOverviewPage() {
+  return (
+    <Suspense fallback={<div className={styles.loading}>Loading executive overview...</div>}>
+      <ExecutiveOverviewContent />
+    </Suspense>
   );
 }
