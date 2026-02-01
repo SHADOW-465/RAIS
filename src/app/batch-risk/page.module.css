@@ -1,0 +1,273 @@
+/* Batch Risk Page Styles */
+/* Primary Question: "Which batches must I act on now?" */
+/* Figma Spec: Frame 6.1 - Risk Summary Cards + Batch Risk List */
+
+.container {
+  min-height: 100vh;
+  background: var(--color-bg-primary, #FFFFFF);
+}
+
+.main {
+  padding: 24px;
+  max-width: var(--content-max-width, 1200px);
+  margin: 0 auto;
+}
+
+/* Summary Section */
+.summarySection {
+  margin-bottom: 24px;
+}
+
+.summaryGrid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 24px;
+}
+
+.summaryCard {
+  background: var(--color-bg-card, #FFFFFF);
+  border: 1px solid var(--color-border, #E5E7EB);
+  border-radius: 12px;
+  padding: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  transition: all 200ms ease-out;
+}
+
+.summaryCard:hover {
+  box-shadow: var(--shadow-card-hover, 0 4px 12px rgba(0, 0, 0, 0.08));
+  transform: translateY(-2px);
+}
+
+.summaryValue {
+  font-size: 32px;
+  font-weight: 600;
+  color: var(--color-text-primary, #1F2937);
+  line-height: 1.2;
+}
+
+.summaryLabel {
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--color-text-secondary, #6B7280);
+}
+
+.summaryPeriod {
+  font-size: 12px;
+  color: var(--color-text-muted, #9CA3AF);
+  margin-top: 4px;
+}
+
+/* High Risk Card Variant */
+.highRiskCard {
+  border-color: var(--color-status-high, #EF4444);
+  background: linear-gradient(135deg, var(--color-bg-card, #FFFFFF) 0%, rgba(239, 68, 68, 0.05) 100%);
+}
+
+.highRiskValue {
+  color: var(--color-status-high, #EF4444);
+}
+
+/* Watch Card Variant */
+.watchCard {
+  border-color: var(--color-status-watch, #F59E0B);
+  background: linear-gradient(135deg, var(--color-bg-card, #FFFFFF) 0%, rgba(245, 158, 11, 0.05) 100%);
+}
+
+.watchValue {
+  color: var(--color-status-watch, #F59E0B);
+}
+
+.summaryBadge {
+  margin-top: 4px;
+}
+
+/* List Section */
+.listSection {
+  margin-top: 24px;
+}
+
+.listCard {
+  background: var(--color-bg-card, #FFFFFF);
+  border: 1px solid var(--color-border, #E5E7EB);
+  border-radius: 12px;
+  overflow: hidden;
+}
+
+.listHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 20px 24px;
+  border-bottom: 1px solid var(--color-border, #E5E7EB);
+  background: var(--color-bg-primary, #FFFFFF);
+}
+
+.listTitle {
+  font-size: 18px;
+  font-weight: 600;
+  color: var(--color-text-primary, #1F2937);
+  margin: 0;
+}
+
+.dateRange {
+  font-size: 14px;
+  color: var(--color-text-secondary, #6B7280);
+  font-weight: 500;
+}
+
+/* Table */
+.tableContainer {
+  overflow-x: auto;
+}
+
+.table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 14px;
+}
+
+.table thead {
+  background: var(--color-bg-secondary, #F7F8FA);
+}
+
+.table th {
+  text-align: left;
+  padding: 14px 24px;
+  font-weight: 600;
+  color: var(--color-text-secondary, #6B7280);
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  border-bottom: 1px solid var(--color-border, #E5E7EB);
+}
+
+.table tbody tr {
+  border-bottom: 1px solid var(--color-border-light, #F3F4F6);
+  transition: background-color 150ms ease-out;
+}
+
+.table tbody tr:hover {
+  background: var(--color-bg-secondary, #F7F8FA);
+}
+
+.table tbody tr:last-child {
+  border-bottom: none;
+}
+
+.table td {
+  padding: 16px 24px;
+  vertical-align: middle;
+}
+
+/* Table Cell Styles */
+.batchId {
+  font-family: monospace;
+  font-weight: 600;
+  color: var(--color-text-primary, #1F2937);
+  font-size: 14px;
+}
+
+.stagesFailed {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.stageCount {
+  font-weight: 600;
+  color: var(--color-text-primary, #1F2937);
+}
+
+.stageLabel {
+  color: var(--color-text-secondary, #6B7280);
+  font-size: 13px;
+}
+
+.rejectedUnits {
+  font-weight: 500;
+  color: var(--color-text-primary, #1F2937);
+}
+
+.rejectionRate {
+  font-weight: 600;
+  color: var(--color-text-primary, #1F2937);
+  font-family: monospace;
+}
+
+.riskCell {
+  white-space: nowrap;
+}
+
+.actionCell {
+  text-align: right;
+}
+
+.actionButton {
+  width: 36px;
+  height: 36px;
+  border-radius: 8px;
+  border: none;
+  background: var(--color-bg-secondary, #F7F8FA);
+  color: var(--color-text-secondary, #6B7280);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: all 200ms ease-out;
+}
+
+.actionButton:hover {
+  background: var(--color-accent, #F59E0B);
+  color: white;
+  transform: scale(1.05);
+}
+
+/* Loading State */
+.loading {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 100vh;
+  font-size: 16px;
+  color: var(--color-text-secondary, #6B7280);
+}
+
+/* Responsive */
+@media (max-width: 768px) {
+  .main {
+    padding: 16px;
+  }
+
+  .summaryGrid {
+    grid-template-columns: 1fr;
+    gap: 16px;
+  }
+
+  .summaryValue {
+    font-size: 28px;
+  }
+
+  .table th,
+  .table td {
+    padding: 12px 16px;
+  }
+
+  .listHeader {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 8px;
+  }
+}
+
+/* Print Styles */
+@media print {
+  .container {
+    background: white;
+  }
+
+  .actionCell {
+    display: none;
+  }
+}
