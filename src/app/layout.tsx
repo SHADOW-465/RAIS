@@ -2,7 +2,6 @@ import type { Metadata } from "next";
 import { Inter } from "next/font/google";
 import "./globals.css";
 import Sidebar from "@/components/Sidebar";
-import TopNav from "@/components/TopNav";
 
 const inter = Inter({
   subsets: ["latin"],
@@ -24,24 +23,10 @@ export default function RootLayout({
   return (
     <html lang="en">
       <body className={inter.className}>
-        <div style={{ display: 'flex', minHeight: '100vh' }}>
+        <div className="app-container">
           <Sidebar />
-          <div style={{
-            flex: 1,
-            marginLeft: 'var(--sidebar-width, 260px)',
-            display: 'flex',
-            flexDirection: 'column',
-            backgroundColor: 'var(--color-bg-secondary)'
-          }}>
-            <TopNav />
-            <main style={{
-              flex: 1,
-              padding: '24px 32px',
-              maxWidth: '100%',
-              overflowX: 'hidden'
-            }}>
-              {children}
-            </main>
+          <div className="main-content">
+            {children}
           </div>
         </div>
       </body>
