@@ -9,17 +9,17 @@
   --color-primary-dark: #0f1219;
   --color-primary-light: #2d3548;
 
-  /* Accent - Gold for executive emphasis */
-  --color-accent: #D4AF37;
-  --color-accent-light: #E8C967;
-  --color-accent-dark: #B8982F;
+  /* Accent - Soft Amber/Orange (UI-Design Context.md spec) */
+  --color-accent: #F59E0B;
+  --color-accent-light: #FBBF24;
+  --color-accent-dark: #D97706;
 
   /* Background Colors - Warm neutral palette */
   --color-bg-primary: #FFFFFF;
   --color-bg-secondary: #F8F9FA;
   --color-bg-tertiary: #F1F3F5;
   --color-bg-card: #FFFFFF;
-  --color-bg-sidebar: #1a1f2e;
+  --color-bg-sidebar: #F7F8FA;
 
   /* Text Colors - High contrast for readability */
   --color-text-primary: #111827;
@@ -33,7 +33,20 @@
   --color-border-light: #F3F4F6;
   --color-border-dark: #D1D5DB;
 
-  /* Status Colors - Accessible contrast ratios */
+  /* Status Colors - 3-Tier Risk System (UI-Design Context.md) */
+  --color-status-normal: #9CA3AF;
+  --color-status-normal-bg: #F3F4F6;
+  --color-status-normal-text: #4B5563;
+
+  --color-status-watch: #F59E0B;
+  --color-status-watch-bg: #FEF3C7;
+  --color-status-watch-text: #92400E;
+
+  --color-status-high: #EF4444;
+  --color-status-high-bg: #FEE2E2;
+  --color-status-high-text: #991B1B;
+
+  /* Legacy status colors for compatibility */
   --color-success: #059669;
   --color-success-bg: #D1FAE5;
   --color-success-text: #065F46;
@@ -111,10 +124,17 @@
   --transition-slow: 300ms ease-out;
   --transition-slower: 400ms ease-out;
 
-  /* Layout */
-  --sidebar-width: 260px;
-  --topnav-height: 64px;
-  --content-max-width: 1400px;
+  /* Layout - Figma Specs (UI-Design Context.md) */
+  --sidebar-width: 240px;
+  --topbar-height: 72px;
+  --content-max-width: 1200px;
+  --canvas-width: 1440px;
+
+  /* Component Dimensions */
+  --kpi-card-width: 260px;
+  --kpi-card-height: 120px;
+  --table-row-height: 56px;
+  --nav-item-height: 48px;
 }
 
 /* Respect reduced motion preference */
@@ -650,4 +670,29 @@ tr:hover td {
 
 .gap-lg {
   gap: var(--spacing-lg);
+}
+
+/* ============================================
+   APP LAYOUT STRUCTURE
+   ============================================ */
+
+.app-container {
+  display: flex;
+  min-height: 100vh;
+  background: var(--color-bg-secondary, #F7F8FA);
+}
+
+.main-content {
+  flex: 1;
+  margin-left: var(--sidebar-width, 240px);
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+
+/* Responsive layout */
+@media (max-width: 768px) {
+  .main-content {
+    margin-left: 0;
+  }
 }
