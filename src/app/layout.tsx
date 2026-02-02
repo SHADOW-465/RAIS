@@ -24,9 +24,11 @@ export default function RootLayout({
     <html lang="en">
       <body className={inter.className}>
         <div className="app-container">
-          <Sidebar />
-          <div className="main-content">
-            {children}
+          <div className="main-wrapper">
+            <Sidebar />
+            <div className="main-content">
+              {children}
+            </div>
           </div>
         </div>
       </body>

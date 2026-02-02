@@ -13,6 +13,79 @@
   margin: 0 auto;
 }
 
+/* Quick Actions Section */
+.quickActionsSection {
+  margin-bottom: 24px;
+}
+
+.quickActionsTitle {
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--color-text-secondary, #6B7280);
+  margin: 0 0 12px 0;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.quickActionsRow {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+}
+
+.uploadCtaButton {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 20px;
+  background: var(--color-accent, #F59E0B);
+  color: white;
+  border: none;
+  border-radius: 8px;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  text-decoration: none;
+  transition: all 200ms ease-out;
+  box-shadow: 0 2px 8px rgba(245, 158, 11, 0.15);
+}
+
+.uploadCtaButton:hover {
+  background: var(--color-accent-dark, #D97706);
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(245, 158, 11, 0.25);
+}
+
+.uploadCtaButton svg {
+  flex-shrink: 0;
+}
+
+.secondaryActionButton {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 20px;
+  background: white;
+  color: var(--color-text-secondary, #6B7280);
+  border: 1px solid var(--color-border, #E5E7EB);
+  border-radius: 8px;
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  text-decoration: none;
+  transition: all 200ms ease-out;
+}
+
+.secondaryActionButton:hover {
+  border-color: var(--color-accent, #F59E0B);
+  color: var(--color-accent, #F59E0B);
+  background: var(--color-bg-secondary, #F7F8FA);
+}
+
+.secondaryActionButton svg {
+  flex-shrink: 0;
+}
+
 /* Section 1: KPI Summary Cards */
 .kpiSection {
   margin-bottom: 24px;
