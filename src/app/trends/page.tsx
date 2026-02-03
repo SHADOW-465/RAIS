@@ -17,6 +17,8 @@ import {
   TrendingUp,
   TrendingDown,
   AlertTriangle,
+  Loader2,
+  BarChart3,
 } from 'lucide-react';
 import {
   AreaChart,
@@ -34,41 +36,51 @@ import { formatDate, formatPercentage } from '@/lib/utils';
 
 const fetcher = (url: string) => fetch(url).then((res) => res.json());
 
-// Mock data
-const mockDailyData = [
-  { date: '2026-01-28', produced: 5200, rejected: 390, rejectionRate: 7.5 },
-  { date: '2026-01-29', produced: 4800, rejected: 410, rejectionRate: 8.5 },
-  { date: '2026-01-30', produced: 5100, rejected: 380, rejectionRate: 7.5 },
-  { date: '2026-01-31', produced: 4900, rejected: 450, rejectionRate: 9.2 },
-  { date: '2026-02-01', produced: 5000, rejected: 420, rejectionRate: 8.4 },
-  { date: '2026-02-02', produced: 5300, rejected: 395, rejectionRate: 7.5 },
-  { date: '2026-02-03', produced: 4700, rejected: 385, rejectionRate: 8.2 },
-];
+interface TrendDataPoint {
+  date: string;
+  produced: number;
+  rejected: number;
+  rejectionRate: number;
+}
+
+interface TrendSummary {
+  avgRejectionRate: number;
+  totalProduced: number;
+  totalRejected: number;
+  periodStart: string;
+  periodEnd: string;
+}
 
 export default function TrendsPage() {
   const [period, setPeriod] = useState('30d');
   
-  const { data, isLoading, mutate } = useSWR(
+  const { data, isLoading, error, mutate } = useSWR(
     `/api/analytics/trends?period=${period}`,
     fetcher,
     {
-      fallbackData: {
-        success: true,
-        data: {
-          trends: mockDailyData,
-          summary: {
-            currentRate: 8.2,
-            previousRate: 7.0,
-            trend: 'up',
-            change: 1.2,
-          },
-        },
-      },
+      refreshInterval: 60000,
     }
   );
 
-  const trends = data?.data?.trends || mockDailyData;
-  const summary = data?.data?.summary;
+  const timeline: TrendDataPoint[] = data?.data?.timeline || [];
+  const summary: TrendSummary | null = data?.data?.summary || null;
+  
+  // Calculate trend direction from data
+  const calculateTrend = () => {
+    if (timeline.length < 2) return { trend: 'stable' as const, change: 0 };
+    const firstHalf = timeline.slice(0, Math.floor(timeline.length / 2));
+    const secondHalf = timeline.slice(Math.floor(timeline.length / 2));
+    
+    const firstAvg = firstHalf.reduce((sum, t) => sum + t.rejectionRate, 0) / firstHalf.length;
+    const secondAvg = secondHalf.reduce((sum, t) => sum + t.rejectionRate, 0) / secondHalf.length;
+    
+    const change = secondAvg - firstAvg;
+    if (Math.abs(change) < 0.5) return { trend: 'stable' as const, change: 0 };
+    return { trend: change > 0 ? 'up' as const : 'down' as const, change: Math.abs(change) };
+  };
+  
+  const trendInfo = calculateTrend();
+  const currentRate = timeline.length > 0 ? timeline[timeline.length - 1].rejectionRate : 0;
 
   return (
     <>
@@ -101,60 +113,94 @@ export default function TrendsPage() {
       />
 
       <div className="flex-1 p-8 overflow-auto">
+        {/* Loading State */}
+        {isLoading && (
+          <div className="flex items-center justify-center py-20">
+            <Loader2 className="w-12 h-12 animate-spin text-primary" />
+            <span className="ml-4 text-xl text-text-secondary">Loading trend data...</span>
+          </div>
+        )}
+
+        {/* Error State */}
+        {error && !isLoading && (
+          <Card className="mb-8 border-danger/30 bg-danger/5">
+            <CardContent className="p-6">
+              <div className="flex items-center gap-3">
+                <AlertTriangle className="w-8 h-8 text-danger" />
+                <div>
+                  <p className="text-lg font-semibold text-danger">Failed to load trend data</p>
+                  <p className="text-text-secondary">Please try refreshing the page</p>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+        )}
+
+        {/* Empty State */}
+        {!isLoading && !error && timeline.length === 0 && (
+          <Card className="mb-8">
+            <CardContent className="p-12 text-center">
+              <BarChart3 className="w-16 h-16 text-text-tertiary mx-auto mb-4" />
+              <p className="text-xl font-semibold text-text-primary mb-2">No Trend Data Available</p>
+              <p className="text-text-secondary">Upload inspection data to see rejection trends</p>
+            </CardContent>
+          </Card>
+        )}
+
         {/* Trend Summary Cards */}
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
-          <Card>
-            <CardContent className="p-6">
-              <p className="text-lg font-bold text-text-secondary mb-2">Current Rejection Rate</p>
-              <div className="flex items-baseline gap-2">
-                <p className="text-5xl font-extrabold text-text-primary">
-                  {formatPercentage(summary?.currentRate || 0)}
-                </p>
-                {summary && (
-                  <div className={`flex items-center gap-1 text-lg font-bold ${summary.trend === 'up' ? 'text-danger' : 'text-success'}`}>
-                    {summary.trend === 'up' ? <TrendingUp className="w-5 h-5" /> : <TrendingDown className="w-5 h-5" />}
-                    <span>{Math.abs(summary.change)}%</span>
+        {!isLoading && !error && timeline.length > 0 && (
+          <>
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
+              <Card>
+                <CardContent className="p-6">
+                  <p className="text-lg font-bold text-text-secondary mb-2">Current Rejection Rate</p>
+                  <div className="flex items-baseline gap-2">
+                    <p className="text-5xl font-extrabold text-text-primary">
+                      {formatPercentage(currentRate)}
+                    </p>
+                    <div className={`flex items-center gap-1 text-lg font-bold ${trendInfo.trend === 'up' ? 'text-danger' : 'text-success'}`}>
+                      {trendInfo.trend === 'up' ? <TrendingUp className="w-5 h-5" /> : <TrendingDown className="w-5 h-5" />}
+                      <span>{trendInfo.change.toFixed(1)}%</span>
+                    </div>
                   </div>
-                )}
-              </div>
-            </CardContent>
-          </Card>
-          
-          <Card>
-            <CardContent className="p-6">
-              <p className="text-lg font-bold text-text-secondary mb-2">Average (Prev Period)</p>
-              <p className="text-5xl font-extrabold text-text-tertiary">
-                {formatPercentage(summary?.previousRate || 0)}
-              </p>
-            </CardContent>
-          </Card>
+                </CardContent>
+              </Card>
+              
+              <Card>
+                <CardContent className="p-6">
+                  <p className="text-lg font-bold text-text-secondary mb-2">Average Rate</p>
+                  <p className="text-5xl font-extrabold text-text-tertiary">
+                    {formatPercentage(summary?.avgRejectionRate || 0)}
+                  </p>
+                </CardContent>
+              </Card>
 
-          <Card className={summary?.trend === 'up' ? 'bg-danger/5 border-danger/20' : 'bg-success/5 border-success/20'}>
-            <CardContent className="p-6 flex items-center gap-4">
-              <div className={`p-4 rounded-full ${summary?.trend === 'up' ? 'bg-danger/10 text-danger' : 'bg-success/10 text-success'}`}>
-                {summary?.trend === 'up' ? <AlertTriangle className="w-8 h-8" /> : <TrendingDown className="w-8 h-8" />}
-              </div>
-              <div>
-                <p className="text-xl font-bold text-text-primary">
-                  {summary?.trend === 'up' ? 'Quality Deteriorating' : 'Quality Improving'}
-                </p>
-                <p className="text-lg text-text-secondary mt-1">
-                  {summary?.trend === 'up' ? 'Immediate attention needed' : 'Trend is positive'}
-                </p>
-              </div>
-            </CardContent>
-          </Card>
-        </div>
+              <Card className={trendInfo.trend === 'up' ? 'bg-danger/5 border-danger/20' : trendInfo.trend === 'down' ? 'bg-success/5 border-success/20' : 'bg-primary/5 border-primary/20'}>
+                <CardContent className="p-6 flex items-center gap-4">
+                  <div className={`p-4 rounded-full ${trendInfo.trend === 'up' ? 'bg-danger/10 text-danger' : trendInfo.trend === 'down' ? 'bg-success/10 text-success' : 'bg-primary/10 text-primary'}`}>
+                    {trendInfo.trend === 'up' ? <AlertTriangle className="w-8 h-8" /> : trendInfo.trend === 'down' ? <TrendingDown className="w-8 h-8" /> : <TrendingUp className="w-8 h-8" />}
+                  </div>
+                  <div>
+                    <p className="text-xl font-bold text-text-primary">
+                      {trendInfo.trend === 'up' ? 'Quality Deteriorating' : trendInfo.trend === 'down' ? 'Quality Improving' : 'Quality Stable'}
+                    </p>
+                    <p className="text-lg text-text-secondary mt-1">
+                      {trendInfo.trend === 'up' ? 'Immediate attention needed' : trendInfo.trend === 'down' ? 'Trend is positive' : 'No significant change'}
+                    </p>
+                  </div>
+                </CardContent>
+              </Card>
+            </div>
 
-        {/* Main Trend Chart */}
-        <Card className="mb-8">
-          <CardHeader>
-            <CardTitle className="text-2xl">Rejection Rate Analysis</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="h-[500px]">
-              <ResponsiveContainer width="100%" height="100%">
-                <AreaChart data={trends} margin={{ top: 20, right: 30, left: 0, bottom: 0 }}>
+            {/* Main Trend Chart */}
+            <Card className="mb-8">
+              <CardHeader>
+                <CardTitle className="text-2xl">Rejection Rate Analysis</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="h-[500px]">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <AreaChart data={timeline} margin={{ top: 20, right: 30, left: 0, bottom: 0 }}>
                   <defs>
                     <linearGradient id="colorRate" x1="0" y1="0" x2="0" y2="1">
                       <stop offset="5%" stopColor="#0066CC" stopOpacity={0.2} />
@@ -220,7 +266,7 @@ export default function TrendsPage() {
           <CardContent>
             <div className="h-[400px]">
               <ResponsiveContainer width="100%" height="100%">
-                <BarChart data={trends} margin={{ top: 20, right: 30, left: 0, bottom: 0 }}>
+                <BarChart data={timeline} margin={{ top: 20, right: 30, left: 0, bottom: 0 }}>
                   <CartesianGrid strokeDasharray="3 3" stroke="#E8E8E8" vertical={false} />
                   <XAxis
                     dataKey="date"
@@ -262,6 +308,8 @@ export default function TrendsPage() {
             </div>
           </CardContent>
         </Card>
+          </>
+        )}
       </div>
     </>
   );

@@ -29,23 +29,26 @@ import {
   Package,
   CheckCircle,
   ShieldAlert,
+  Loader2,
 } from 'lucide-react';
 
 const fetcher = (url: string) => fetch(url).then((res) => res.json());
 
-// Mock batch data - Simplified for Executive View
-const mockBatches = [
-  { id: '1', batchNumber: 'BR-2401', defectSummary: 'Visual Defects (15.2%)', riskLevel: 'high_risk' },
-  { id: '2', batchNumber: 'BR-2398', defectSummary: 'Dimensional Issues (12.8%)', riskLevel: 'high_risk' },
-  { id: '3', batchNumber: 'BR-2405', defectSummary: 'Material Failure (11.5%)', riskLevel: 'high_risk' },
-  { id: '4', batchNumber: 'BR-2399', defectSummary: 'Assembly Errors (9.2%)', riskLevel: 'watch' },
-  { id: '5', batchNumber: 'BR-2403', defectSummary: 'Visual Defects (8.5%)', riskLevel: 'watch' },
-  { id: '6', batchNumber: 'BR-2400', defectSummary: 'Packaging (8.0%)', riskLevel: 'watch' },
-  { id: '7', batchNumber: 'BR-2402', defectSummary: 'Minor Scratches (6.0%)', riskLevel: 'normal' },
-  { id: '8', batchNumber: 'BR-2404', defectSummary: 'Clean (5.0%)', riskLevel: 'normal' },
-];
-
 type RiskLevel = 'high_risk' | 'watch' | 'normal';
+
+interface BatchData {
+  id: string;
+  batchNumber: string;
+  batch_number: string;
+  defectSummary?: string;
+  riskLevel: RiskLevel;
+  risk_level: RiskLevel;
+  rejectionRate?: number;
+  rejection_rate?: number;
+  productionDate?: string;
+  production_date?: string;
+  topDefect?: string;
+}
 
 const riskConfig: Record<RiskLevel, { label: string; color: string; bgColor: string; icon: React.ReactNode }> = {
   high_risk: {
@@ -70,40 +73,49 @@ const riskConfig: Record<RiskLevel, { label: string; color: string; bgColor: str
 
 export default function BatchRiskPage() {
   const [riskFilter, setRiskFilter] = useState<string>('all');
-  const [selectedBatch, setSelectedBatch] = useState<typeof mockBatches[0] | null>(null);
+  const [selectedBatch, setSelectedBatch] = useState<BatchData | null>(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
 
-  const { data, isLoading, mutate } = useSWR(
-    `/api/batches?risk_level=${riskFilter !== 'all' ? riskFilter : ''}`,
+  const { data, isLoading, error, mutate } = useSWR(
+    `/api/batches?risk_level=${riskFilter !== 'all' ? riskFilter : ''}&limit=100`,
     fetcher,
     {
-      fallbackData: {
-        success: true,
-        data: {
-          data: mockBatches,
-          total: mockBatches.length,
-        },
-      },
+      refreshInterval: 60000,
     }
   );
 
-  const batches = data?.data?.data || mockBatches;
+  const batches: BatchData[] = data?.data?.data || [];
 
   // Filter batches
-  const filteredBatches = batches.filter((batch: { riskLevel: string }) => {
-    return riskFilter === 'all' || batch.riskLevel === riskFilter;
+  const filteredBatches = batches.filter((batch: BatchData) => {
+    const batchRiskLevel = batch.risk_level || batch.riskLevel;
+    return riskFilter === 'all' || batchRiskLevel === riskFilter;
   });
 
   // Count by risk level
   const riskCounts = {
-    high_risk: batches.filter((b: { riskLevel: string }) => b.riskLevel === 'high_risk').length,
-    watch: batches.filter((b: { riskLevel: string }) => b.riskLevel === 'watch').length,
-    normal: batches.filter((b: { riskLevel: string }) => b.riskLevel === 'normal').length,
+    high_risk: batches.filter((b: BatchData) => (b.risk_level || b.riskLevel) === 'high_risk').length,
+    watch: batches.filter((b: BatchData) => (b.risk_level || b.riskLevel) === 'watch').length,
+    normal: batches.filter((b: BatchData) => (b.risk_level || b.riskLevel) === 'normal').length,
   };
 
-  const handleReview = (batch: typeof mockBatches[0]) => {
+  const handleReview = (batch: BatchData) => {
     setSelectedBatch(batch);
     setIsModalOpen(true);
+  };
+
+  // Format date for display
+  const formatDate = (dateStr: string | undefined) => {
+    if (!dateStr) return 'N/A';
+    return new Date(dateStr).toLocaleDateString();
+  };
+
+  // Generate defect summary for a batch
+  const getDefectSummary = (batch: BatchData) => {
+    if (batch.topDefect) {
+      return `${batch.topDefect} (${(batch.rejection_rate || batch.rejectionRate || 0).toFixed(1)}%)`;
+    }
+    return `Rejection Rate: ${(batch.rejection_rate || batch.rejectionRate || 0).toFixed(1)}%`;
   };
 
   return (
@@ -182,53 +194,93 @@ export default function BatchRiskPage() {
           </Card>
         </div>
 
+        {/* Loading State */}
+        {isLoading && (
+          <div className="flex items-center justify-center py-20">
+            <Loader2 className="w-12 h-12 animate-spin text-primary" />
+            <span className="ml-4 text-xl text-text-secondary">Loading batch data...</span>
+          </div>
+        )}
+
+        {/* Error State */}
+        {error && !isLoading && (
+          <Card className="mb-8 border-danger/30 bg-danger/5">
+            <CardContent className="p-6">
+              <div className="flex items-center gap-3">
+                <AlertTriangle className="w-8 h-8 text-danger" />
+                <div>
+                  <p className="text-lg font-semibold text-danger">Failed to load batch data</p>
+                  <p className="text-text-secondary">Please try refreshing the page</p>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+        )}
+
+        {/* Empty State */}
+        {!isLoading && !error && batches.length === 0 && (
+          <Card className="mb-8">
+            <CardContent className="p-12 text-center">
+              <Package className="w-16 h-16 text-text-tertiary mx-auto mb-4" />
+              <p className="text-xl font-semibold text-text-primary mb-2">No Batches Found</p>
+              <p className="text-text-secondary">Upload inspection data to see batch risk analysis</p>
+            </CardContent>
+          </Card>
+        )}
+
         {/* Simplified Executive Table */}
-        <Card className="shadow-md">
-          <CardContent className="p-0">
-            <Table>
-              <TableHeader>
-                <TableRow className="bg-bg-secondary hover:bg-bg-secondary">
-                  <TableHead className="text-xl font-bold h-16 pl-8">Batch ID</TableHead>
-                  <TableHead className="text-xl font-bold h-16">Risk Status</TableHead>
-                  <TableHead className="text-xl font-bold h-16">Defect Summary</TableHead>
-                  <TableHead className="text-xl font-bold h-16 text-right pr-8">Action</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {filteredBatches.map((batch: typeof mockBatches[0]) => (
-                  <TableRow key={batch.id} className="hover:bg-bg-secondary/50 transition-colors h-20">
-                    <TableCell className="text-xl font-bold text-text-primary pl-8">
-                      {batch.batchNumber}
-                    </TableCell>
-                    <TableCell>
-                      <Badge 
-                        className={`text-lg px-4 py-2 font-bold uppercase tracking-wide ${riskConfig[batch.riskLevel as RiskLevel].bgColor} ${riskConfig[batch.riskLevel as RiskLevel].color} border-none`}
-                      >
-                        <div className="flex items-center gap-2">
-                          {riskConfig[batch.riskLevel as RiskLevel].icon}
-                          {riskConfig[batch.riskLevel as RiskLevel].label}
-                        </div>
-                      </Badge>
-                    </TableCell>
-                    <TableCell className="text-xl text-text-secondary font-medium">
-                      {batch.defectSummary}
-                    </TableCell>
-                    <TableCell className="text-right pr-8">
-                      <Button 
-                        variant="default" 
-                        size="lg"
-                        className="text-lg px-8 bg-primary hover:bg-primary-dark"
-                        onClick={() => handleReview(batch)}
-                      >
-                        Review
-                      </Button>
-                    </TableCell>
+        {!isLoading && !error && batches.length > 0 && (
+          <Card className="shadow-md">
+            <CardContent className="p-0">
+              <Table>
+                <TableHeader>
+                  <TableRow className="bg-bg-secondary hover:bg-bg-secondary">
+                    <TableHead className="text-xl font-bold h-16 pl-8">Batch ID</TableHead>
+                    <TableHead className="text-xl font-bold h-16">Risk Status</TableHead>
+                    <TableHead className="text-xl font-bold h-16">Defect Summary</TableHead>
+                    <TableHead className="text-xl font-bold h-16 text-right pr-8">Action</TableHead>
                   </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          </CardContent>
-        </Card>
+                </TableHeader>
+                <TableBody>
+                  {filteredBatches.map((batch: BatchData) => {
+                    const batchRiskLevel = (batch.risk_level || batch.riskLevel) as RiskLevel;
+                    const batchNumber = batch.batch_number || batch.batchNumber;
+                    return (
+                      <TableRow key={batch.id} className="hover:bg-bg-secondary/50 transition-colors h-20">
+                        <TableCell className="text-xl font-bold text-text-primary pl-8">
+                          {batchNumber}
+                        </TableCell>
+                        <TableCell>
+                          <Badge 
+                            className={`text-lg px-4 py-2 font-bold uppercase tracking-wide ${riskConfig[batchRiskLevel].bgColor} ${riskConfig[batchRiskLevel].color} border-none`}
+                          >
+                            <div className="flex items-center gap-2">
+                              {riskConfig[batchRiskLevel].icon}
+                              {riskConfig[batchRiskLevel].label}
+                            </div>
+                          </Badge>
+                        </TableCell>
+                        <TableCell className="text-xl text-text-secondary font-medium">
+                          {getDefectSummary(batch)}
+                        </TableCell>
+                        <TableCell className="text-right pr-8">
+                          <Button 
+                            variant="default" 
+                            size="lg"
+                            className="text-lg px-8 bg-primary hover:bg-primary-dark"
+                            onClick={() => handleReview(batch)}
+                          >
+                            Review
+                          </Button>
+                        </TableCell>
+                      </TableRow>
+                    );
+                  })}
+                </TableBody>
+              </Table>
+            </CardContent>
+          </Card>
+        )}
       </div>
 
       {/* Action Modal */}
@@ -238,33 +290,51 @@ export default function BatchRiskPage() {
             <div className="flex items-center gap-4 mb-2">
               <ShieldAlert className="w-10 h-10 text-danger" />
               <DialogTitle className="text-3xl font-bold text-text-primary">
-                Action Required: {selectedBatch?.batchNumber}
+                Batch Review: {selectedBatch?.batch_number || selectedBatch?.batchNumber}
               </DialogTitle>
             </div>
             <DialogDescription className="text-xl text-text-secondary ml-14">
-              AI Analysis detected critical anomalies in this batch.
+              Review batch details and take appropriate action.
             </DialogDescription>
           </DialogHeader>
           
           <div className="p-8 space-y-6">
-            <div className="bg-danger/10 border-l-8 border-danger p-6 rounded-r-lg">
-              <h4 className="text-xl font-bold text-danger mb-2">RECOMMENDED ACTION</h4>
+            <div className={`border-l-8 p-6 rounded-r-lg ${
+              (selectedBatch?.risk_level || selectedBatch?.riskLevel) === 'high_risk' 
+                ? 'bg-danger/10 border-danger' 
+                : (selectedBatch?.risk_level || selectedBatch?.riskLevel) === 'watch'
+                ? 'bg-warning/10 border-warning'
+                : 'bg-success/10 border-success'
+            }`}>
+              <h4 className={`text-xl font-bold mb-2 ${
+                (selectedBatch?.risk_level || selectedBatch?.riskLevel) === 'high_risk' 
+                  ? 'text-danger' 
+                  : (selectedBatch?.risk_level || selectedBatch?.riskLevel) === 'watch'
+                  ? 'text-warning'
+                  : 'text-success'
+              }`}>
+                {(selectedBatch?.risk_level || selectedBatch?.riskLevel) === 'high_risk' 
+                  ? 'HIGH RISK - IMMEDIATE ACTION REQUIRED' 
+                  : (selectedBatch?.risk_level || selectedBatch?.riskLevel) === 'watch'
+                  ? 'WATCH - MONITOR CLOSELY'
+                  : 'NORMAL - WITHIN ACCEPTABLE LIMITS'}
+              </h4>
               <p className="text-2xl font-bold text-text-primary">
-                Quarantine Batch Immediately
+                Rejection Rate: {((selectedBatch?.rejection_rate || selectedBatch?.rejectionRate || 0)).toFixed(1)}%
               </p>
               <p className="text-lg text-text-secondary mt-2">
-                3 critical visual defects found. High probability of customer rejection.
+                {selectedBatch ? getDefectSummary(selectedBatch) : 'No batch selected'}
               </p>
             </div>
 
             <div className="grid grid-cols-2 gap-4 text-lg">
               <div className="p-4 bg-bg-secondary rounded-lg">
-                <span className="font-bold text-text-secondary block mb-1">Defect Type</span>
-                <span className="font-bold text-text-primary">Visual Deformity</span>
+                <span className="font-bold text-text-secondary block mb-1">Batch Number</span>
+                <span className="font-bold text-text-primary">{selectedBatch?.batch_number || selectedBatch?.batchNumber}</span>
               </div>
               <div className="p-4 bg-bg-secondary rounded-lg">
-                <span className="font-bold text-text-secondary block mb-1">Estimated Loss</span>
-                <span className="font-bold text-text-primary">$12,450</span>
+                <span className="font-bold text-text-secondary block mb-1">Production Date</span>
+                <span className="font-bold text-text-primary">{formatDate(selectedBatch?.production_date || selectedBatch?.productionDate)}</span>
               </div>
             </div>
           </div>
@@ -275,7 +345,7 @@ export default function BatchRiskPage() {
               onClick={() => setIsModalOpen(false)}
               className="text-lg h-14 px-8 text-text-secondary hover:text-text-primary"
             >
-              Ignore (Log Risk)
+              Close
             </Button>
             <div className="flex gap-4">
               <Button 
@@ -283,15 +353,17 @@ export default function BatchRiskPage() {
                 className="text-lg h-14 px-8 border-2 border-text-tertiary hover:bg-text-tertiary hover:text-white"
                 onClick={() => setIsModalOpen(false)}
               >
-                Release with Note
+                Mark as Reviewed
               </Button>
-              <Button 
-                variant="destructive" 
-                className="text-lg h-14 px-8 bg-danger hover:bg-danger-dark"
-                onClick={() => setIsModalOpen(false)}
-              >
-                Quarantine Batch
-              </Button>
+              {(selectedBatch?.risk_level || selectedBatch?.riskLevel) === 'high_risk' && (
+                <Button 
+                  variant="destructive" 
+                  className="text-lg h-14 px-8 bg-danger hover:bg-danger-dark"
+                  onClick={() => setIsModalOpen(false)}
+                >
+                  Escalate Issue
+                </Button>
+              )}
             </div>
           </DialogFooter>
         </DialogContent>

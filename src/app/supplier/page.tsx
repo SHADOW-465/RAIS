@@ -31,6 +31,8 @@ import {
   CheckCircle,
   Phone,
   Mail,
+  Loader2,
+  BarChart3,
 } from 'lucide-react';
 import {
   LineChart,
@@ -46,23 +48,18 @@ import { formatPercentage, formatDate } from '@/lib/utils';
 
 const fetcher = (url: string) => fetch(url).then((res) => res.json());
 
-// Mock supplier data
-const mockSuppliers = [
-  { id: '1', supplierCode: 'S-401', supplierName: 'ABC Components Ltd', batchCount: 12, avgRejectionRate: 14.2, rating: 2.1, trend: 'worsening', performanceGrade: 'poor', contactEmail: 'contact@abc.com', contactPhone: '+91 98765 43210' },
-  { id: '2', supplierCode: 'S-203', supplierName: 'XYZ Materials Inc', batchCount: 8, avgRejectionRate: 11.5, rating: 2.8, trend: 'stable', performanceGrade: 'fair', contactEmail: 'sales@xyz.com', contactPhone: '+91 98765 43211' },
-  { id: '3', supplierCode: 'S-115', supplierName: 'Quality Parts Co', batchCount: 15, avgRejectionRate: 8.9, rating: 3.2, trend: 'improving', performanceGrade: 'fair', contactEmail: 'info@qualityparts.com', contactPhone: '+91 98765 43212' },
-  { id: '4', supplierCode: 'S-302', supplierName: 'Premium Supplies', batchCount: 22, avgRejectionRate: 4.2, rating: 4.1, trend: 'stable', performanceGrade: 'excellent', contactEmail: 'orders@premium.com', contactPhone: '+91 98765 43213' },
-  { id: '5', supplierCode: 'S-088', supplierName: 'Reliable Components', batchCount: 18, avgRejectionRate: 5.5, rating: 3.8, trend: 'improving', performanceGrade: 'good', contactEmail: 'support@reliable.com', contactPhone: '+91 98765 43214' },
-];
-
-// Mock trend data for top suppliers
-const mockTrendData = [
-  { date: '2026-01-01', 'S-401': 12.5, 'S-203': 10.2, 'S-115': 9.8, 'S-302': 4.5, 'S-088': 6.2 },
-  { date: '2026-01-08', 'S-401': 13.2, 'S-203': 11.0, 'S-115': 9.5, 'S-302': 4.2, 'S-088': 5.8 },
-  { date: '2026-01-15', 'S-401': 14.8, 'S-203': 11.8, 'S-115': 9.2, 'S-302': 4.0, 'S-088': 5.5 },
-  { date: '2026-01-22', 'S-401': 13.5, 'S-203': 11.2, 'S-115': 8.8, 'S-302': 4.3, 'S-088': 5.2 },
-  { date: '2026-01-29', 'S-401': 14.2, 'S-203': 11.5, 'S-115': 8.9, 'S-302': 4.2, 'S-088': 5.5 },
-];
+interface SupplierData {
+  id: string;
+  supplierCode: string;
+  supplierName: string;
+  batchCount: number;
+  avgRejectionRate: number;
+  rating: number;
+  trend: 'worsening' | 'stable' | 'improving';
+  performanceGrade: 'excellent' | 'good' | 'fair' | 'poor';
+  contactEmail: string;
+  contactPhone: string;
+}
 
 const gradeConfig: Record<string, { color: string; bgColor: string; label: string }> = {
   excellent: { color: 'text-success', bgColor: 'bg-success', label: 'Excellent' },
@@ -71,32 +68,25 @@ const gradeConfig: Record<string, { color: string; bgColor: string; label: strin
   poor: { color: 'text-danger', bgColor: 'bg-danger', label: 'Poor' },
 };
 
-const supplierColors: Record<string, string> = {
-  'S-401': '#CC0000',
-  'S-203': '#CC6600',
-  'S-115': '#0066CC',
-  'S-302': '#006600',
-  'S-088': '#666666',
+// Generate consistent colors for suppliers dynamically
+const generateSupplierColor = (index: number) => {
+  const colors = ['#CC0000', '#CC6600', '#0066CC', '#006600', '#666666', '#9900CC', '#CC0066', '#00CCCC'];
+  return colors[index % colors.length];
 };
 
 export default function SupplierPage() {
   const [period, setPeriod] = useState('90d');
   const [selectedSupplier, setSelectedSupplier] = useState<string | null>(null);
 
-  const { data, isLoading, mutate } = useSWR(
+  const { data, isLoading, error, mutate } = useSWR(
     `/api/analytics/suppliers?period=${period}`,
     fetcher,
     {
-      fallbackData: {
-        success: true,
-        data: {
-          suppliers: mockSuppliers,
-        },
-      },
+      refreshInterval: 60000,
     }
   );
 
-  const suppliers = data?.data?.suppliers || mockSuppliers;
+  const suppliers: SupplierData[] = data?.data?.suppliers || [];
 
   // Sort by rejection rate (worst first)
   const sortedSuppliers = [...suppliers].sort(
@@ -207,55 +197,22 @@ export default function SupplierPage() {
           </div>
         </div>
 
-        {/* Performance Trend Chart */}
+        {/* Performance Trend Chart - Placeholder */}
         <Card className="mb-8">
           <CardHeader>
             <CardTitle>Supplier Performance Trend</CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="h-80">
-              <ResponsiveContainer width="100%" height="100%">
-                <LineChart data={mockTrendData}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#E8E8E8" />
-                  <XAxis
-                    dataKey="date"
-                    tickFormatter={(date) => {
-                      const d = new Date(date);
-                      return `${d.getDate()}/${d.getMonth() + 1}`;
-                    }}
-                    tick={{ fontSize: 14 }}
-                    stroke="#666666"
-                  />
-                  <YAxis
-                    tickFormatter={(value) => `${value}%`}
-                    tick={{ fontSize: 14 }}
-                    stroke="#666666"
-                    domain={[0, 'auto']}
-                  />
-                  <Tooltip
-                    contentStyle={{
-                      backgroundColor: 'white',
-                      border: '2px solid #E8E8E8',
-                      borderRadius: '8px',
-                      fontSize: '16px',
-                    }}
-                    formatter={(value) => [`${value}%`, 'Rejection Rate']}
-                    labelFormatter={(date) => formatDate(date)}
-                  />
-                  <Legend />
-                  {Object.keys(supplierColors).map((code) => (
-                    <Line
-                      key={code}
-                      type="monotone"
-                      dataKey={code}
-                      stroke={supplierColors[code]}
-                      strokeWidth={2}
-                      dot={{ r: 4 }}
-                      name={code}
-                    />
-                  ))}
-                </LineChart>
-              </ResponsiveContainer>
+            <div className="h-80 flex items-center justify-center bg-bg-secondary/50 rounded-lg">
+              <div className="text-center">
+                <BarChart3 className="w-12 h-12 text-text-tertiary mx-auto mb-3" />
+                <p className="text-lg font-medium text-text-secondary">
+                  Historical trend data coming soon
+                </p>
+                <p className="text-sm text-text-tertiary mt-1">
+                  Track supplier performance over time
+                </p>
+              </div>
             </div>
           </CardContent>
         </Card>

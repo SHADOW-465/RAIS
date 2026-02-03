@@ -21,7 +21,7 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table';
-import { RefreshCw, Sparkles, CheckCircle, Loader2 } from 'lucide-react';
+import { RefreshCw, Sparkles, CheckCircle, Loader2, AlertTriangle, BarChart3 } from 'lucide-react';
 import {
   Bar,
   XAxis,
@@ -70,27 +70,6 @@ const categoryColors: Record<string, string> = {
   other: '#666666',
 };
 
-// Fallback data for when API is unavailable
-const fallbackParetoData: ParetoDefect[] = [
-  { type: 'Visual Defects', category: 'visual', count: 456, percentage: 38, cumulativePercentage: 38 },
-  { type: 'Dimensional Issues', category: 'dimensional', count: 234, percentage: 19, cumulativePercentage: 57 },
-  { type: 'Functional Failures', category: 'functional', count: 189, percentage: 16, cumulativePercentage: 73 },
-  { type: 'Material Defects', category: 'material', count: 145, percentage: 12, cumulativePercentage: 85 },
-  { type: 'Surface Scratches', category: 'visual', count: 89, percentage: 7, cumulativePercentage: 92 },
-  { type: 'Assembly Errors', category: 'other', count: 56, percentage: 5, cumulativePercentage: 97 },
-  { type: 'Other', category: 'other', count: 35, percentage: 3, cumulativePercentage: 100 },
-];
-
-const fallbackRootCause: RootCauseData = {
-  text: 'Visual defects show a 23% increase over the past week. Primary contributor appears to be Batch BR-2401 from supplier S-401. The defect pattern correlates with a new material batch received on Jan 28.',
-  confidence: 0.78,
-  actionItems: [
-    'Inspect remaining inventory from supplier S-401',
-    'Review material specifications with supplier',
-    'Increase visual inspection frequency for assembly stage',
-  ],
-};
-
 export default function AnalysisPage() {
   const [period, setPeriod] = useState('30d');
   const [selectedDefect, setSelectedDefect] = useState<string | null>(null);
@@ -99,21 +78,13 @@ export default function AnalysisPage() {
     `/api/analytics/pareto?period=${period}`,
     fetcher,
     {
-      // Use fallback data while loading or on error
-      fallbackData: {
-        success: true,
-        data: {
-          defects: fallbackParetoData,
-          total: fallbackParetoData.reduce((sum, d) => sum + d.count, 0),
-          rootCause: fallbackRootCause,
-        },
-      },
+      refreshInterval: 60000,
     }
   );
 
-  // Use API data when available, fallback when not
-  const paretoData = data?.data?.defects || fallbackParetoData;
-  const rootCause = data?.data?.rootCause || fallbackRootCause;
+  // Use API data only - no fallbacks
+  const paretoData = data?.data?.defects || [];
+  const rootCause = data?.data?.rootCause || null;
   const total = data?.data?.total || paretoData.reduce((sum, d) => sum + d.count, 0);
 
   return (
