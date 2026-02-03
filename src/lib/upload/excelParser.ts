@@ -46,14 +46,19 @@ const HEADER_KEYWORDS = [
   // Quality/Inspection
   'reject', 'defect', 'fail', 'pass', 'ok', 'ng', 'scrap',
   'visual', 'assembly', 'integrity', 'inspection', 'check',
+  'rejection', 'accepted', 'hold', 'checked', 'acpt', 'chkd',
   // Production
   'produced', 'manufactured', 'output', 'completed', 'done',
+  'dispatch', 'production', 'trolleys',
   // Defects
   'scratch', 'dent', 'crack', 'leak', 'damage', 'error',
+  'coag', 'raised', 'wire', 'surface', 'overlaping', 'black', 'mark',
+  'webbing', 'missing', 'formers', 'bubble', 'thin', 'spod',
   // People
   'inspector', 'operator', 'qc', 'checker', 'verified', 'by',
   // Status
   'status', 'result', 'outcome', 'verdict', 'grade',
+  's.no', 'remarks', 's.no.', 'month',
   // Product
   'product', 'item', 'part', 'component', 'material', 'sku',
   // Supplier

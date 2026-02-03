@@ -536,6 +536,18 @@ function transformValue(value: unknown, targetType?: 'string' | 'number' | 'date
 
     case 'date':
       if (value instanceof Date) return value.toISOString().split('T')[0];
+      
+      // Handle Excel serial dates (numbers > 20000 usually imply dates after 1954)
+      if (typeof value === 'number' && value > 20000) {
+        // Excel base date is Dec 30, 1899
+        // JS base date is Jan 1, 1970
+        // The difference is 25569 days
+        const date = new Date(Math.round((value - 25569) * 86400 * 1000));
+        if (!isNaN(date.getTime())) {
+          return date.toISOString().split('T')[0];
+        }
+      }
+
       const dateStr = String(value);
       // Try various date formats
       const date = new Date(dateStr);
