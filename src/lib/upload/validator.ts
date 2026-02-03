@@ -200,11 +200,17 @@ function validateRow(
     switch (rule.type) {
       case 'required':
         if (value === undefined || value === null || value === '') {
+          // Check if this is an identity column (batch_number, date) - demote to warning for AI recovery
+          const isIdentityColumn = rule.column === 'batch_number' || 
+                                   rule.column.includes('date') || 
+                                   rule.column.includes('production_date');
           errors.push({
             row: rowIndex,
             column: rule.column,
-            message: rule.message,
-            severity: 'error',
+            message: isIdentityColumn 
+              ? `Row is missing a clear ${rule.column}. Attempting AI recovery.`
+              : rule.message,
+            severity: isIdentityColumn ? 'warning' : 'error',
           });
         }
         break;
@@ -213,11 +219,17 @@ function validateRow(
         if (value !== undefined && value !== null && value !== '') {
           const expectedType = rule.params?.expectedType as string;
           if (expectedType === 'number' && typeof value !== 'number' && isNaN(Number(value))) {
+            // Type mismatch on quantity columns - demote to warning for AI parsing
+            const isQuantityColumn = rule.column.includes('quantity') || 
+                                     rule.column.includes('count') ||
+                                     rule.column.includes('qty');
             errors.push({
               row: rowIndex,
               column: rule.column,
-              message: rule.message,
-              severity: 'error',
+              message: isQuantityColumn 
+                ? `${rule.column} has invalid format. AI will attempt to parse.`
+                : rule.message,
+              severity: isQuantityColumn ? 'warning' : 'error',
             });
           }
         }
@@ -229,12 +241,18 @@ function validateRow(
           if (!isNaN(numValue)) {
             const min = rule.params?.min as number | undefined;
             const max = rule.params?.max as number | undefined;
+            // Range violations on quantity columns - demote to warning for AI correction
+            const isQuantityColumn = rule.column.includes('quantity') || 
+                                     rule.column.includes('count') ||
+                                     rule.column.includes('qty');
             if (min !== undefined && numValue < min) {
               errors.push({
                 row: rowIndex,
                 column: rule.column,
-                message: rule.message,
-                severity: 'error',
+                message: isQuantityColumn
+                  ? `${rule.column} has negative value. AI will normalize.`
+                  : rule.message,
+                severity: isQuantityColumn ? 'warning' : 'error',
               });
             }
             if (max !== undefined && numValue > max) {
@@ -242,7 +260,7 @@ function validateRow(
                 row: rowIndex,
                 column: rule.column,
                 message: rule.message,
-                severity: 'error',
+                severity: isQuantityColumn ? 'warning' : 'error',
               });
             }
           }

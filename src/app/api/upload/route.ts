@@ -117,7 +117,31 @@ export async function POST(request: NextRequest) {
       // Continue without AI analysis
     }
 
-    // ===== STEP 3: UNIVERSAL AI DATA TRANSFORMATION =====
+    // ===== STEP 3: VALIDATION (NON-BLOCKING) =====
+    // Run validation to identify issues, but proceed regardless for AI recovery
+    let validationWarnings: string[] = [];
+    try {
+      const { validateData } = await import('@/lib/upload/validator');
+      const validationResult = await validateData(rows, detectedFileType);
+      
+      if (validationResult.warnings.length > 0) {
+        validationWarnings = validationResult.warnings.map(w => 
+          `Row ${w.row}: ${w.column} - ${w.message}`
+        );
+        console.warn(`[Upload] Validation warnings found (${validationResult.warnings.length}), proceeding to AI transformation...`);
+      }
+      
+      // Log recoverable errors (now demoted to warnings in validator.ts)
+      const recoverableErrors = validationResult.errors.filter(e => e.severity === 'warning');
+      if (recoverableErrors.length > 0) {
+        console.warn(`[Upload] ${recoverableErrors.length} recoverable issues will be handled by AI`);
+      }
+    } catch (validationError) {
+      // Validation failure shouldn't block - proceed to AI transformation
+      console.warn('[Upload] Validation step failed, continuing with AI transformation:', validationError);
+    }
+
+    // ===== STEP 4: UNIVERSAL AI DATA TRANSFORMATION =====
     console.log('[Upload] Starting Universal AI Data Transformation...');
     
     const transformResult = await transformData(
@@ -138,7 +162,7 @@ export async function POST(request: NextRequest) {
       console.log(`[Upload] Errors (${transformResult.errors.length}):`, transformResult.errors.slice(0, 5));
     }
 
-    // ===== STEP 4: CREATE UPLOAD HISTORY RECORD =====
+    // ===== STEP 5: CREATE UPLOAD HISTORY RECORD =====
     const storagePath = `uploads/${uploadId}/${file.name}`;
 
     try {
@@ -181,7 +205,7 @@ export async function POST(request: NextRequest) {
       // Continue - we'll update later or just proceed
     }
 
-    // ===== STEP 5: UPLOAD TO STORAGE =====
+    // ===== STEP 6: UPLOAD TO STORAGE =====
     try {
       await uploadFile(buffer, storagePath, 'uploads');
     } catch (storageError) {
@@ -189,7 +213,7 @@ export async function POST(request: NextRequest) {
       // Continue - storage is optional
     }
 
-    // ===== STEP 6: INSERT DATA TO DATABASE =====
+    // ===== STEP 7: INSERT DATA TO DATABASE =====
     console.log('[Upload] Inserting data to database...');
     
     let recordsImported = 0;
@@ -282,7 +306,7 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    // ===== STEP 7: UPDATE UPLOAD HISTORY =====
+    // ===== STEP 8: UPDATE UPLOAD HISTORY =====
     const allWarnings = [...transformResult.warnings, ...dbErrors];
     const allErrors = transformResult.errors;
     
