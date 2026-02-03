@@ -23,13 +23,8 @@ export default function RootLayout({
   return (
     <html lang="en" className={inter.variable}>
       <body className="font-sans antialiased">
-        <a href="#main-content" className="skip-to-main">
-          Skip to main content
-        </a>
         <DashboardLayout>
-          <div id="main-content">
-            {children}
-          </div>
+          {children}
         </DashboardLayout>
       </body>
     </html>

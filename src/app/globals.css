@@ -5,20 +5,20 @@
      COLORS (WCAG AAA Compliant)
      ======================================================================== */
   
-  /* Primary (Blue) */
-  --color-primary: #0066CC;
-  --color-primary-50: #E6F2FF;
-  --color-primary-100: #CCE5FF;
-  --color-primary-200: #99CCFF;
-  --color-primary-300: #66B2FF;
-  --color-primary-400: #3399FF;
-  --color-primary-500: #0066CC;
-  --color-primary-600: #0052A3;
-  --color-primary-700: #003D7A;
-  --color-primary-800: #002952;
-  --color-primary-900: #001429;
-  --color-primary-dark: #004C99;
-  --color-primary-light: #3385D6;
+  /* Primary (Teal/Cyan - Reference Image Theme) */
+  --color-primary: #00CEC9;
+  --color-primary-50: #E6FFFE;
+  --color-primary-100: #CCFFFC;
+  --color-primary-200: #99FFF9;
+  --color-primary-300: #66FFF6;
+  --color-primary-400: #33FFF3;
+  --color-primary-500: #00CEC9;
+  --color-primary-600: #00A59F;
+  --color-primary-700: #007C77;
+  --color-primary-800: #005250;
+  --color-primary-900: #002928;
+  --color-primary-dark: #009B96;
+  --color-primary-light: #5EDDD8;
 
   /* Success (Green) */
   --color-success: #006600;

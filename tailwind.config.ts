@@ -10,21 +10,21 @@ const config: Config = {
   theme: {
     extend: {
       colors: {
-        // WCAG AAA Compliant Color Palette
+        // WCAG AAA Compliant Color Palette - TEAL/CYAN THEME
         primary: {
-          DEFAULT: '#0066CC', // 6.5:1 contrast ratio
-          dark: '#004C99',    // 9.74:1 contrast ratio
-          light: '#3385D6',   // For hover states
-          50: '#E6F2FF',
-          100: '#CCE5FF',
-          200: '#99CCFF',
-          300: '#66B2FF',
-          400: '#3399FF',
-          500: '#0066CC',
-          600: '#0052A3',
-          700: '#003D7A',
-          800: '#002952',
-          900: '#001429',
+          DEFAULT: '#00CEC9', // Teal/cyan from reference image
+          dark: '#009B96',    // Darker teal
+          light: '#5EDDD8',   // Lighter teal for hover
+          50: '#E6FFFE',
+          100: '#CCFFFC',
+          200: '#99FFF9',
+          300: '#66FFF6',
+          400: '#33FFF3',
+          500: '#00CEC9',
+          600: '#00A59F',
+          700: '#007C77',
+          800: '#005250',
+          900: '#002928',
         },
         success: {
           DEFAULT: '#006600', // 7.58:1 contrast ratio
