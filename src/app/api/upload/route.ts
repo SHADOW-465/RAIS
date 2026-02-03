@@ -1,15 +1,16 @@
 /**
- * Upload API Route
- * POST /api/upload - Handle Excel file uploads with AI analysis
+ * Upload API Route - Universal AI Data Adapter
+ * POST /api/upload - Handle ANY Excel format using AI-powered mapping
  * GET /api/upload - Get upload history
  */
 
 import { NextRequest, NextResponse } from 'next/server';
 import { v4 as uuidv4 } from 'uuid';
 import { supabaseAdmin, uploadFile } from '@/lib/db/client';
-import { processExcelFile } from '@/lib/upload';
+import { transformData } from '@/lib/upload/transformer';
 import { analyzeUploadData } from '@/lib/ai/gemini';
 import { parseExcelBuffer, previewExcelFile } from '@/lib/upload/excelParser';
+import { detectSchema } from '@/lib/upload/schemaDetector';
 import type { FileType } from '@/lib/db/types';
 
 export const runtime = 'nodejs';
@@ -19,7 +20,7 @@ export const dynamic = 'force-dynamic';
 const MAX_FILE_SIZE = 10 * 1024 * 1024;
 
 // ============================================================================
-// POST - Upload and process Excel file with AI analysis
+// POST - Upload and process Excel file with Universal AI Data Adapter
 // ============================================================================
 
 export async function POST(request: NextRequest) {
@@ -31,7 +32,6 @@ export async function POST(request: NextRequest) {
     const formData = await request.formData();
     const file = formData.get('file') as File | null;
     const forceType = formData.get('fileType') as FileType | null;
-    const skipValidation = formData.get('skipValidation') === 'true';
 
     if (!file) {
       return NextResponse.json(
@@ -77,27 +77,68 @@ export async function POST(request: NextRequest) {
     const arrayBuffer = await file.arrayBuffer();
     const buffer = Buffer.from(arrayBuffer);
 
-    // ===== AI PREVIEW ANALYSIS =====
-    // Get preview for AI analysis before full processing
-    const previewResult = await previewExcelFile(buffer, 10);
+    // ===== STEP 1: PARSE EXCEL FILE =====
+    console.log(`[Upload] Parsing Excel file: ${file.name}`);
+    
+    const parseResult = await parseExcelBuffer(buffer);
+    
+    if (!parseResult.success || parseResult.sheets.length === 0) {
+      return NextResponse.json(
+        {
+          success: false,
+          error: {
+            code: 'PARSE_ERROR',
+            message: parseResult.errors[0] || 'Failed to parse Excel file',
+          },
+        },
+        { status: 400 }
+      );
+    }
+
+    const sheet = parseResult.sheets[0];
+    const headers = sheet.headers;
+    const rows = sheet.rows;
+
+    console.log(`[Upload] Parsed ${rows.length} rows with ${headers.length} columns`);
+    console.log(`[Upload] Headers: ${headers.join(', ')}`);
+
+    // ===== STEP 2: AI FILE ANALYSIS =====
+    console.log('[Upload] Running AI file analysis...');
+    
     let aiAnalysis = null;
     let detectedFileType: FileType = 'unknown';
 
-    if (previewResult && previewResult.preview.length > 0) {
-      try {
-        aiAnalysis = await analyzeUploadData(
-          previewResult.preview,
-          previewResult.headers,
-          file.name
-        );
-        detectedFileType = aiAnalysis.fileType as FileType;
-      } catch (aiError) {
-        console.warn('AI analysis failed:', aiError);
-        // Continue without AI analysis
-      }
+    try {
+      aiAnalysis = await analyzeUploadData(rows.slice(0, 5), headers, file.name);
+      detectedFileType = (forceType || aiAnalysis.fileType || 'unknown') as FileType;
+      console.log(`[Upload] AI detected type: ${detectedFileType} (confidence: ${aiAnalysis.confidence})`);
+    } catch (aiError) {
+      console.warn('[Upload] AI analysis failed:', aiError);
+      // Continue without AI analysis
     }
 
-    // Create upload history record
+    // ===== STEP 3: UNIVERSAL AI DATA TRANSFORMATION =====
+    console.log('[Upload] Starting Universal AI Data Transformation...');
+    
+    const transformResult = await transformData(
+      rows,
+      headers,
+      detectedFileType,
+      file.name,
+      { skipValidation: true } // NEVER reject files - always attempt to process
+    );
+
+    console.log(`[Upload] Transform complete: ${transformResult.stats.batchesCreated} batches, ${transformResult.stats.inspectionsCreated} inspections, ${transformResult.stats.defectsCreated} defects`);
+    
+    if (transformResult.warnings.length > 0) {
+      console.log(`[Upload] Warnings (${transformResult.warnings.length}):`, transformResult.warnings.slice(0, 5));
+    }
+    
+    if (transformResult.errors.length > 0) {
+      console.log(`[Upload] Errors (${transformResult.errors.length}):`, transformResult.errors.slice(0, 5));
+    }
+
+    // ===== STEP 4: CREATE UPLOAD HISTORY RECORD =====
     const storagePath = `uploads/${uploadId}/${file.name}`;
 
     try {
@@ -105,6 +146,7 @@ export async function POST(request: NextRequest) {
         id: uploadId,
         filename: `${uploadId}_${file.name}`,
         original_filename: file.name,
+        file_type: detectedFileType,
         file_size: file.size,
         storage_path: storagePath,
         bucket_name: 'uploads',
@@ -122,40 +164,45 @@ export async function POST(request: NextRequest) {
                 detectedMetrics: aiAnalysis.detectedMetrics,
               }
             : null,
+          aiMapping: transformResult.aiMapping
+            ? {
+                confidence: transformResult.aiMapping.confidence,
+                explanation: transformResult.aiMapping.explanation,
+                mappedColumns: Object.keys(transformResult.aiMapping.config.mapping).length,
+                batchGeneration: transformResult.aiMapping.config.batchGeneration,
+              }
+            : null,
+          headers: headers,
+          totalRows: rows.length,
         },
       });
     } catch (dbError) {
-      console.log('Could not create upload history record:', dbError);
-      // Continue processing even if history record fails
+      console.warn('[Upload] Could not create upload history record:', dbError);
+      // Continue - we'll update later or just proceed
     }
 
-    // Upload file to Supabase Storage
+    // ===== STEP 5: UPLOAD TO STORAGE =====
     try {
       await uploadFile(buffer, storagePath, 'uploads');
     } catch (storageError) {
-      console.log('Could not upload to storage:', storageError);
-      // Continue processing even if storage fails
+      console.warn('[Upload] Could not upload to storage:', storageError);
+      // Continue - storage is optional
     }
 
-    // Process the Excel file
-    // Use AI-detected type if available, otherwise use forced type or auto-detect
-    const effectiveFileType = forceType || detectedFileType || undefined;
-    const result = await processExcelFile(buffer, {
-      forceFileType: effectiveFileType,
-      skipValidation,
-    });
-
-    // Insert transformed data into database
+    // ===== STEP 6: INSERT DATA TO DATABASE =====
+    console.log('[Upload] Inserting data to database...');
+    
     let recordsImported = 0;
     let recordsFailed = 0;
+    const dbErrors: string[] = [];
 
-    if (result.success && result.transform.batches.length > 0) {
+    // Insert batches
+    if (transformResult.batches.length > 0) {
       try {
-        // Insert batches
         const { data: batchData, error: batchError } = await supabaseAdmin
           .from('batches')
           .upsert(
-            result.transform.batches.map((b) => ({
+            transformResult.batches.map((b) => ({
               ...b,
               created_at: new Date().toISOString(),
               updated_at: new Date().toISOString(),
@@ -165,145 +212,172 @@ export async function POST(request: NextRequest) {
           .select('id');
 
         if (batchError) {
-          console.error('Batch insert error:', batchError);
-          recordsFailed += result.transform.batches.length;
+          console.error('[Upload] Batch insert error:', batchError);
+          dbErrors.push(`Batch insert failed: ${batchError.message}`);
+          recordsFailed += transformResult.batches.length;
         } else {
           recordsImported += batchData?.length || 0;
+          console.log(`[Upload] Inserted ${batchData?.length || 0} batches`);
         }
-
-        // Insert inspection records
-        if (result.transform.inspections.length > 0) {
-          const { data: inspData, error: inspError } = await supabaseAdmin
-            .from('inspection_records')
-            .insert(
-              result.transform.inspections.map((i) => ({
-                ...i,
-                created_at: new Date().toISOString(),
-              }))
-            )
-            .select('id');
-
-          if (inspError) {
-            console.error('Inspection insert error:', inspError);
-            recordsFailed += result.transform.inspections.length;
-          } else {
-            recordsImported += inspData?.length || 0;
-          }
-        }
-
-        // Insert defects
-        if (result.transform.defects.length > 0) {
-          const { data: defectData, error: defectError } = await supabaseAdmin
-            .from('defects')
-            .insert(
-              result.transform.defects.map((d) => ({
-                ...d,
-                created_at: new Date().toISOString(),
-              }))
-            )
-            .select('id');
-
-          if (defectError) {
-            console.error('Defect insert error:', defectError);
-            recordsFailed += result.transform.defects.length;
-          } else {
-            recordsImported += defectData?.length || 0;
-          }
-        }
-      } catch (insertError) {
-        console.error('Database insert error:', insertError);
-        recordsFailed = result.transform.stats.batchesCreated;
+      } catch (error) {
+        console.error('[Upload] Batch insert exception:', error);
+        dbErrors.push(`Batch insert exception: ${error instanceof Error ? error.message : 'Unknown'}`);
+        recordsFailed += transformResult.batches.length;
       }
     }
 
-    // Check for anomalies based on AI analysis
-    const hasAnomaly = aiAnalysis && detectAnomalyFromAI(aiAnalysis);
+    // Insert inspection records
+    if (transformResult.inspections.length > 0) {
+      try {
+        const { data: inspData, error: inspError } = await supabaseAdmin
+          .from('inspection_records')
+          .insert(
+            transformResult.inspections.map((i) => ({
+              ...i,
+              created_at: new Date().toISOString(),
+            }))
+          )
+          .select('id');
 
-    // Update upload history with final results
+        if (inspError) {
+          console.error('[Upload] Inspection insert error:', inspError);
+          dbErrors.push(`Inspection insert failed: ${inspError.message}`);
+          recordsFailed += transformResult.inspections.length;
+        } else {
+          recordsImported += inspData?.length || 0;
+          console.log(`[Upload] Inserted ${inspData?.length || 0} inspections`);
+        }
+      } catch (error) {
+        console.error('[Upload] Inspection insert exception:', error);
+        dbErrors.push(`Inspection insert exception: ${error instanceof Error ? error.message : 'Unknown'}`);
+        recordsFailed += transformResult.inspections.length;
+      }
+    }
+
+    // Insert defects
+    if (transformResult.defects.length > 0) {
+      try {
+        const { data: defectData, error: defectError } = await supabaseAdmin
+          .from('defects')
+          .insert(
+            transformResult.defects.map((d) => ({
+              ...d,
+              created_at: new Date().toISOString(),
+            }))
+          )
+          .select('id');
+
+        if (defectError) {
+          console.error('[Upload] Defect insert error:', defectError);
+          dbErrors.push(`Defect insert failed: ${defectError.message}`);
+          recordsFailed += transformResult.defects.length;
+        } else {
+          recordsImported += defectData?.length || 0;
+          console.log(`[Upload] Inserted ${defectData?.length || 0} defects`);
+        }
+      } catch (error) {
+        console.error('[Upload] Defect insert exception:', error);
+        dbErrors.push(`Defect insert exception: ${error instanceof Error ? error.message : 'Unknown'}`);
+        recordsFailed += transformResult.defects.length;
+      }
+    }
+
+    // ===== STEP 7: UPDATE UPLOAD HISTORY =====
+    const allWarnings = [...transformResult.warnings, ...dbErrors];
+    const allErrors = transformResult.errors;
+    
     try {
       await supabaseAdmin
         .from('upload_history')
         .update({
-          file_type: result.fileType,
-          upload_status: result.success ? 'completed' : 'failed',
+          upload_status: recordsFailed === 0 ? 'completed' : 'completed_with_warnings',
           records_imported: recordsImported,
           records_failed: recordsFailed,
-          validation_errors: result.validation.errors.slice(0, 10),
-          error_message: result.errors.join('; ') || null,
+          validation_errors: allWarnings.slice(0, 10),
+          error_message: allErrors.length > 0 ? allErrors.join('; ') : null,
           processing_completed_at: new Date().toISOString(),
           metadata: {
-            processingTime: result.metadata.processingTime,
-            sheetCount: result.metadata.sheetCount,
-            totalRows: result.metadata.totalRows,
+            processingTime: Date.now() - startTime,
+            sheetCount: parseResult.sheets.length,
+            totalRows: rows.length,
+            headers: headers,
             aiAnalysis: aiAnalysis
               ? {
                   summary: aiAnalysis.summary,
                   fileType: aiAnalysis.fileType,
                   confidence: aiAnalysis.confidence,
                   detectedMetrics: aiAnalysis.detectedMetrics,
-                  hasAnomaly,
                 }
               : null,
-            headerDetection: previewResult
+            aiMapping: transformResult.aiMapping
               ? {
-                  headerRowIndex: previewResult.headerRowIndex,
+                  confidence: transformResult.aiMapping.confidence,
+                  explanation: transformResult.aiMapping.explanation,
+                  mapping: transformResult.aiMapping.config.mapping,
+                  batchGeneration: transformResult.aiMapping.config.batchGeneration,
                 }
               : null,
+            warnings: allWarnings.slice(0, 20),
+            errors: allErrors.slice(0, 10),
           },
         })
         .eq('id', uploadId);
     } catch (updateError) {
-      console.log('Could not update upload history:', updateError);
+      console.warn('[Upload] Could not update upload history:', updateError);
     }
 
+    // ===== STEP 8: RETURN RESPONSE =====
     return NextResponse.json({
-      success: result.success,
+      success: true, // Always return success - we never reject files
       data: {
         uploadId,
-        fileType: result.fileType,
+        fileType: detectedFileType,
         aiAnalysis: aiAnalysis
           ? {
               summary: aiAnalysis.summary,
               fileType: aiAnalysis.fileType,
               confidence: aiAnalysis.confidence,
               detectedMetrics: aiAnalysis.detectedMetrics,
-              hasAnomaly,
             }
           : null,
-        detection: {
-          type: result.detection.detectedType,
-          confidence: result.detection.confidence,
-          matchedColumns: result.detection.matchedColumns,
-          source: result.detection.detectionSource,
-        },
-        smartParsing: previewResult
+        aiMapping: transformResult.aiMapping
           ? {
-              headerRowIndex: previewResult.headerRowIndex,
+              confidence: transformResult.aiMapping.confidence,
+              explanation: transformResult.aiMapping.explanation,
+              mappedColumns: Object.keys(transformResult.aiMapping.config.mapping).length,
+              batchGeneration: transformResult.aiMapping.config.batchGeneration,
             }
           : null,
-        validation: {
-          valid: result.validation.valid,
-          summary: result.validation.summary,
-          errors: result.validation.errors.slice(0, 10),
+        smartParsing: {
+          headerRowIndex: sheet.headerRowIndex || 0,
+          headers: headers,
+          totalRows: rows.length,
         },
         import: {
-          batchesCreated: result.transform.stats.batchesCreated,
-          inspectionsCreated: result.transform.stats.inspectionsCreated,
-          defectsCreated: result.transform.stats.defectsCreated,
+          batchesCreated: transformResult.stats.batchesCreated,
+          inspectionsCreated: transformResult.stats.inspectionsCreated,
+          defectsCreated: transformResult.stats.defectsCreated,
           recordsImported,
           recordsFailed,
         },
+        quality: {
+          warnings: allWarnings.slice(0, 10),
+          errors: allErrors.slice(0, 10),
+          rowsProcessed: transformResult.stats.rowsProcessed,
+          rowsFailed: transformResult.stats.rowsFailed,
+        },
       },
-      errors: result.errors,
       meta: {
         timestamp: new Date().toISOString(),
         processingTime: Date.now() - startTime,
         fileName: file.name,
         fileSize: file.size,
+        universalAdapter: true,
       },
     });
+
   } catch (error) {
-    console.error('Upload error:', error);
+    console.error('[Upload] Critical error:', error);
 
     // Update upload history with error
     try {
@@ -316,7 +390,7 @@ export async function POST(request: NextRequest) {
         })
         .eq('id', uploadId);
     } catch {
-      // Ignore update errors
+      // Ignore
     }
 
     return NextResponse.json(
@@ -330,36 +404,6 @@ export async function POST(request: NextRequest) {
       { status: 500 }
     );
   }
-}
-
-/**
- * Detect anomalies from AI analysis
- */
-function detectAnomalyFromAI(aiAnalysis: {
-  fileType: string;
-  summary: string;
-  detectedMetrics: Record<string, string | undefined>;
-  confidence: number;
-}): boolean {
-  // Check for high rejection indicators in summary
-  const summaryLower = aiAnalysis.summary.toLowerCase();
-  const highRejectionIndicators = [
-    'high rejection',
-    'high fail',
-    'high defect',
-    'severe',
-    'critical',
-    'urgent',
-    'alert',
-  ];
-
-  for (const indicator of highRejectionIndicators) {
-    if (summaryLower.includes(indicator)) {
-      return true;
-    }
-  }
-
-  return false;
 }
 
 // ============================================================================

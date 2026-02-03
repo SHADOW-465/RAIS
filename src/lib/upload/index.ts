@@ -88,7 +88,9 @@ export async function processExcelFile(
         inspections: [],
         defects: [],
         errors: parseResult.errors,
-        stats: { batchesCreated: 0, inspectionsCreated: 0, defectsCreated: 0 },
+        warnings: [],
+        aiMapping: null,
+        stats: { batchesCreated: 0, inspectionsCreated: 0, defectsCreated: 0, rowsProcessed: 0, rowsFailed: 0 },
       },
       errors: parseResult.errors,
       metadata: {
@@ -141,8 +143,14 @@ export async function processExcelFile(
     }
   }
 
-  // Step 4: Transform data
-  const transform = await transformData(sheet.rows, detection.detectedType);
+  // Step 4: Transform data using Universal AI Data Adapter
+  const transform = await transformData(
+    sheet.rows,
+    sheet.headers,
+    detection.detectedType,
+    parseResult.metadata.fileName || 'unknown',
+    { skipValidation: options.skipValidation }
+  );
   if (!transform.success) {
     errors.push(...transform.errors);
   }
