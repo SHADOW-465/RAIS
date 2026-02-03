@@ -5,6 +5,7 @@ import useSWR from 'swr';
 import { DashboardHeader } from '@/components/layout';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
+import { Badge } from '@/components/ui/badge';
 import {
   Select,
   SelectContent,
@@ -13,14 +14,15 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import {
+  RefreshCw,
+  Calendar,
   TrendingUp,
   TrendingDown,
-  Minus,
-  RefreshCw,
+  AlertTriangle,
 } from 'lucide-react';
 import {
-  LineChart,
-  Line,
+  AreaChart,
+  Area,
   XAxis,
   YAxis,
   CartesianGrid,
@@ -29,171 +31,120 @@ import {
   BarChart,
   Bar,
   Legend,
-  ComposedChart,
-  Area,
+  Line,
 } from 'recharts';
 import { formatDate, formatPercentage } from '@/lib/utils';
 
 const fetcher = (url: string) => fetch(url).then((res) => res.json());
 
 // Mock data
-const generateMockData = (days: number) => {
-  const data = [];
-  const today = new Date();
-  for (let i = days - 1; i >= 0; i--) {
-    const date = new Date(today);
-    date.setDate(date.getDate() - i);
-    const produced = 4500 + Math.floor(Math.random() * 1000);
-    const rejectionRate = 6 + Math.random() * 6;
-    const rejected = Math.floor(produced * rejectionRate / 100);
-    data.push({
-      date: date.toISOString().split('T')[0],
-      produced,
-      rejected,
-      rejectionRate: Math.round(rejectionRate * 10) / 10,
-    });
-  }
-  return data;
-};
+const mockDailyData = [
+  { date: '2026-01-28', produced: 5200, rejected: 390, rejectionRate: 7.5 },
+  { date: '2026-01-29', produced: 4800, rejected: 410, rejectionRate: 8.5 },
+  { date: '2026-01-30', produced: 5100, rejected: 380, rejectionRate: 7.5 },
+  { date: '2026-01-31', produced: 4900, rejected: 450, rejectionRate: 9.2 },
+  { date: '2026-02-01', produced: 5000, rejected: 420, rejectionRate: 8.4 },
+  { date: '2026-02-02', produced: 5300, rejected: 395, rejectionRate: 7.5 },
+  { date: '2026-02-03', produced: 4700, rejected: 385, rejectionRate: 8.2 },
+];
 
 export default function TrendsPage() {
   const [period, setPeriod] = useState('30d');
-  const [granularity, setGranularity] = useState('daily');
-
-  const periodDays = period === '7d' ? 7 : period === '14d' ? 14 : period === '30d' ? 30 : 90;
-  const mockData = generateMockData(periodDays);
-
+  
   const { data, isLoading, mutate } = useSWR(
-    `/api/analytics/trends?period=${period}&granularity=${granularity}`,
+    `/api/analytics/trends?period=${period}`,
     fetcher,
     {
       fallbackData: {
         success: true,
         data: {
-          timeline: mockData,
+          trends: mockDailyData,
           summary: {
-            avgRejectionRate: 8.2,
-            totalProduced: mockData.reduce((sum, d) => sum + d.produced, 0),
-            totalRejected: mockData.reduce((sum, d) => sum + d.rejected, 0),
+            currentRate: 8.2,
+            previousRate: 7.0,
+            trend: 'up',
+            change: 1.2,
           },
         },
       },
     }
   );
 
-  const trendData = data?.data?.timeline || mockData;
-  const summary = data?.data?.summary || {};
-
-  // Calculate period comparison
-  const currentPeriodRate = trendData.slice(-Math.floor(trendData.length / 2))
-    .reduce((sum: number, d: { rejectionRate: number }) => sum + d.rejectionRate, 0) / Math.floor(trendData.length / 2);
-  const previousPeriodRate = trendData.slice(0, Math.floor(trendData.length / 2))
-    .reduce((sum: number, d: { rejectionRate: number }) => sum + d.rejectionRate, 0) / Math.floor(trendData.length / 2);
-  const rateChange = currentPeriodRate - previousPeriodRate;
+  const trends = data?.data?.trends || mockDailyData;
+  const summary = data?.data?.summary;
 
   return (
     <>
       <DashboardHeader
         title="Rejection Trends"
-        description="Track rejection rates and production volumes over time"
+        description="Analyze quality performance over time"
         actions={
-          <Button
-            variant="outline"
-            onClick={() => mutate()}
-            disabled={isLoading}
-            className="gap-2"
-          >
-            <RefreshCw className={`w-5 h-5 ${isLoading ? 'animate-spin' : ''}`} />
-            Refresh
-          </Button>
+          <div className="flex items-center gap-4">
+            <Select value={period} onValueChange={setPeriod}>
+              <SelectTrigger className="w-[180px] h-12 text-lg">
+                <SelectValue placeholder="Select period" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="7d" className="text-lg">Last 7 Days</SelectItem>
+                <SelectItem value="30d" className="text-lg">Last 30 Days</SelectItem>
+                <SelectItem value="90d" className="text-lg">Last 90 Days</SelectItem>
+              </SelectContent>
+            </Select>
+            <Button
+              variant="outline"
+              onClick={() => mutate()}
+              disabled={isLoading}
+              className="gap-2 h-12 text-lg px-6"
+            >
+              <RefreshCw className={`w-5 h-5 ${isLoading ? 'animate-spin' : ''}`} />
+              Refresh
+            </Button>
+          </div>
         }
       />
 
       <div className="flex-1 p-8 overflow-auto">
-        {/* Filters */}
-        <div className="flex flex-wrap gap-4 mb-8">
-          <div className="flex items-center gap-2">
-            <span className="text-base font-medium text-text-secondary">Period:</span>
-            <Select value={period} onValueChange={setPeriod}>
-              <SelectTrigger className="w-40">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="7d">Last 7 Days</SelectItem>
-                <SelectItem value="14d">Last 14 Days</SelectItem>
-                <SelectItem value="30d">Last 30 Days</SelectItem>
-                <SelectItem value="90d">Last 90 Days</SelectItem>
-              </SelectContent>
-            </Select>
-          </div>
-          <div className="flex items-center gap-2">
-            <span className="text-base font-medium text-text-secondary">View:</span>
-            <Select value={granularity} onValueChange={setGranularity}>
-              <SelectTrigger className="w-32">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="daily">Daily</SelectItem>
-                <SelectItem value="weekly">Weekly</SelectItem>
-              </SelectContent>
-            </Select>
-          </div>
-        </div>
-
-        {/* Summary Cards */}
+        {/* Trend Summary Cards */}
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
           <Card>
             <CardContent className="p-6">
-              <p className="text-base font-medium text-text-secondary mb-2">Average Rejection Rate</p>
-              <p className="text-4xl font-bold text-text-primary">
-                {formatPercentage(summary.avgRejectionRate || 8.2)}
-              </p>
-              <div className="flex items-center gap-2 mt-3">
-                {rateChange > 0.5 ? (
-                  <>
-                    <TrendingUp className="w-5 h-5 text-danger" />
-                    <span className="text-base text-danger font-medium">
-                      +{rateChange.toFixed(1)}% vs previous period
-                    </span>
-                  </>
-                ) : rateChange < -0.5 ? (
-                  <>
-                    <TrendingDown className="w-5 h-5 text-success" />
-                    <span className="text-base text-success font-medium">
-                      {rateChange.toFixed(1)}% vs previous period
-                    </span>
-                  </>
-                ) : (
-                  <>
-                    <Minus className="w-5 h-5 text-text-tertiary" />
-                    <span className="text-base text-text-secondary font-medium">
-                      Stable vs previous period
-                    </span>
-                  </>
+              <p className="text-lg font-bold text-text-secondary mb-2">Current Rejection Rate</p>
+              <div className="flex items-baseline gap-2">
+                <p className="text-5xl font-extrabold text-text-primary">
+                  {formatPercentage(summary?.currentRate || 0)}
+                </p>
+                {summary && (
+                  <div className={`flex items-center gap-1 text-lg font-bold ${summary.trend === 'up' ? 'text-danger' : 'text-success'}`}>
+                    {summary.trend === 'up' ? <TrendingUp className="w-5 h-5" /> : <TrendingDown className="w-5 h-5" />}
+                    <span>{Math.abs(summary.change)}%</span>
+                  </div>
                 )}
               </div>
             </CardContent>
           </Card>
-
+          
           <Card>
             <CardContent className="p-6">
-              <p className="text-base font-medium text-text-secondary mb-2">Total Produced</p>
-              <p className="text-4xl font-bold text-text-primary">
-                {(summary.totalProduced || 0).toLocaleString()}
+              <p className="text-lg font-bold text-text-secondary mb-2">Average (Prev Period)</p>
+              <p className="text-5xl font-extrabold text-text-tertiary">
+                {formatPercentage(summary?.previousRate || 0)}
               </p>
-              <p className="text-base text-text-secondary mt-3">units in {periodDays} days</p>
             </CardContent>
           </Card>
 
-          <Card>
-            <CardContent className="p-6">
-              <p className="text-base font-medium text-text-secondary mb-2">Total Rejected</p>
-              <p className="text-4xl font-bold text-danger">
-                {(summary.totalRejected || 0).toLocaleString()}
-              </p>
-              <p className="text-base text-text-secondary mt-3">
-                {formatPercentage(((summary.totalRejected || 0) / (summary.totalProduced || 1)) * 100)} of production
-              </p>
+          <Card className={summary?.trend === 'up' ? 'bg-danger/5 border-danger/20' : 'bg-success/5 border-success/20'}>
+            <CardContent className="p-6 flex items-center gap-4">
+              <div className={`p-4 rounded-full ${summary?.trend === 'up' ? 'bg-danger/10 text-danger' : 'bg-success/10 text-success'}`}>
+                {summary?.trend === 'up' ? <AlertTriangle className="w-8 h-8" /> : <TrendingDown className="w-8 h-8" />}
+              </div>
+              <div>
+                <p className="text-xl font-bold text-text-primary">
+                  {summary?.trend === 'up' ? 'Quality Deteriorating' : 'Quality Improving'}
+                </p>
+                <p className="text-lg text-text-secondary mt-1">
+                  {summary?.trend === 'up' ? 'Immediate attention needed' : 'Trend is positive'}
+                </p>
+              </div>
             </CardContent>
           </Card>
         </div>
@@ -201,48 +152,41 @@ export default function TrendsPage() {
         {/* Main Trend Chart */}
         <Card className="mb-8">
           <CardHeader>
-            <CardTitle>Daily Rejection Rate Trend</CardTitle>
+            <CardTitle className="text-2xl">Rejection Rate Analysis</CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="h-96">
+            <div className="h-[500px]">
               <ResponsiveContainer width="100%" height="100%">
-                <ComposedChart data={trendData}>
+                <AreaChart data={trends} margin={{ top: 20, right: 30, left: 0, bottom: 0 }}>
                   <defs>
                     <linearGradient id="colorRate" x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="5%" stopColor="#0066CC" stopOpacity={0.3} />
+                      <stop offset="5%" stopColor="#0066CC" stopOpacity={0.2} />
                       <stop offset="95%" stopColor="#0066CC" stopOpacity={0} />
                     </linearGradient>
                   </defs>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#E8E8E8" />
+                  <CartesianGrid strokeDasharray="3 3" stroke="#E8E8E8" vertical={false} />
                   <XAxis
                     dataKey="date"
-                    tickFormatter={(date) => {
-                      const d = new Date(date);
-                      return `${d.getDate()}/${d.getMonth() + 1}`;
-                    }}
-                    tick={{ fontSize: 14 }}
+                    tickFormatter={(date) => formatDate(date).split(' ').slice(0, 2).join(' ')}
+                    tick={{ fontSize: 16, fill: '#333', fontWeight: 500 }}
                     stroke="#666666"
+                    dy={10}
                   />
                   <YAxis
-                    yAxisId="left"
                     tickFormatter={(value) => `${value}%`}
-                    tick={{ fontSize: 14 }}
+                    tick={{ fontSize: 16, fill: '#333', fontWeight: 500 }}
                     stroke="#666666"
                     domain={[0, 'auto']}
-                  />
-                  <YAxis
-                    yAxisId="right"
-                    orientation="right"
-                    tickFormatter={(value) => value.toLocaleString()}
-                    tick={{ fontSize: 14 }}
-                    stroke="#999999"
+                    dx={-10}
                   />
                   <Tooltip
                     contentStyle={{
                       backgroundColor: 'white',
                       border: '2px solid #E8E8E8',
-                      borderRadius: '8px',
-                      fontSize: '16px',
+                      borderRadius: '12px',
+                      fontSize: '18px',
+                      padding: '16px',
+                      boxShadow: '0 4px 12px rgba(0,0,0,0.1)',
                     }}
                     formatter={(value, name) => {
                       if (name === 'rejectionRate') return [`${value}%`, 'Rejection Rate'];
@@ -250,63 +194,59 @@ export default function TrendsPage() {
                     }}
                     labelFormatter={(date) => formatDate(date)}
                   />
-                  <Legend />
+                  <Legend 
+                    wrapperStyle={{ paddingTop: '20px', fontSize: '18px' }}
+                    iconSize={20}
+                  />
                   <Area
                     yAxisId="left"
                     type="monotone"
                     dataKey="rejectionRate"
                     stroke="#0066CC"
-                    strokeWidth={3}
+                    strokeWidth={4}
                     fillOpacity={1}
                     fill="url(#colorRate)"
                     name="Rejection Rate"
+                    activeDot={{ r: 8, strokeWidth: 2, fill: 'white' }}
                   />
-                  <Line
-                    yAxisId="left"
-                    type="monotone"
-                    dataKey="rejectionRate"
-                    stroke="#0066CC"
-                    strokeWidth={3}
-                    dot={{ fill: '#0066CC', r: 4 }}
-                    activeDot={{ r: 6 }}
-                    name="Rejection Rate"
-                  />
-                </ComposedChart>
+                </AreaChart>
               </ResponsiveContainer>
             </div>
           </CardContent>
         </Card>
 
-        {/* Production vs Rejection Chart */}
+        {/* Production vs Rejection Volume */}
         <Card>
           <CardHeader>
-            <CardTitle>Production vs Rejection Volume</CardTitle>
+            <CardTitle className="text-2xl">Volume Analysis (Produced vs Rejected)</CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="h-80">
+            <div className="h-[400px]">
               <ResponsiveContainer width="100%" height="100%">
-                <BarChart data={trendData}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#E8E8E8" />
+                <BarChart data={trends} margin={{ top: 20, right: 30, left: 0, bottom: 0 }}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#E8E8E8" vertical={false} />
                   <XAxis
                     dataKey="date"
-                    tickFormatter={(date) => {
-                      const d = new Date(date);
-                      return `${d.getDate()}/${d.getMonth() + 1}`;
-                    }}
-                    tick={{ fontSize: 14 }}
+                    tickFormatter={(date) => formatDate(date).split(' ').slice(0, 2).join(' ')}
+                    tick={{ fontSize: 16, fill: '#333', fontWeight: 500 }}
                     stroke="#666666"
+                    dy={10}
                   />
                   <YAxis
                     tickFormatter={(value) => value.toLocaleString()}
-                    tick={{ fontSize: 14 }}
+                    tick={{ fontSize: 16, fill: '#333', fontWeight: 500 }}
                     stroke="#666666"
+                    dx={-10}
                   />
                   <Tooltip
+                    cursor={{ fill: '#f5f5f5' }}
                     contentStyle={{
                       backgroundColor: 'white',
                       border: '2px solid #E8E8E8',
-                      borderRadius: '8px',
-                      fontSize: '16px',
+                      borderRadius: '12px',
+                      fontSize: '18px',
+                      padding: '16px',
+                      boxShadow: '0 4px 12px rgba(0,0,0,0.1)',
                     }}
                     formatter={(value, name) => [
                       Number(value).toLocaleString(),
@@ -314,9 +254,12 @@ export default function TrendsPage() {
                     ]}
                     labelFormatter={(date) => formatDate(date)}
                   />
-                  <Legend />
-                  <Bar dataKey="produced" fill="#006600" name="Produced" radius={[4, 4, 0, 0]} />
-                  <Bar dataKey="rejected" fill="#CC0000" name="Rejected" radius={[4, 4, 0, 0]} />
+                  <Legend 
+                    wrapperStyle={{ paddingTop: '20px', fontSize: '18px' }}
+                    iconSize={20}
+                  />
+                  <Bar dataKey="produced" fill="#006600" name="Produced" radius={[4, 4, 0, 0]} barSize={40} />
+                  <Bar dataKey="rejected" fill="#CC0000" name="Rejected" radius={[4, 4, 0, 0]} barSize={40} />
                 </BarChart>
               </ResponsiveContainer>
             </div>

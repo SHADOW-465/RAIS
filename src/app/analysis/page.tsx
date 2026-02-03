@@ -33,6 +33,7 @@ import {
   Line,
   ComposedChart,
   Cell,
+  Legend,
 } from 'recharts';
 import { formatPercentage } from '@/lib/utils';
 
@@ -88,266 +89,193 @@ export default function AnalysisPage() {
   const total = data?.data?.total || 1204;
   const rootCause = data?.data?.rootCause;
 
-  // Find 80% threshold for Pareto
-  const threshold80 = paretoData.findIndex(
-    (d: { cumulativePercentage: number }) => d.cumulativePercentage >= 80
-  );
-
   return (
     <>
       <DashboardHeader
         title="Defect Analysis"
         description="Pareto analysis and root cause insights"
         actions={
-          <Button
-            variant="outline"
-            onClick={() => mutate()}
-            disabled={isLoading}
-            className="gap-2"
-          >
-            <RefreshCw className={`w-5 h-5 ${isLoading ? 'animate-spin' : ''}`} />
-            Refresh
-          </Button>
+          <div className="flex items-center gap-4">
+            <Select value={period} onValueChange={setPeriod}>
+              <SelectTrigger className="w-[180px] h-12 text-lg">
+                <SelectValue placeholder="Select period" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="7d" className="text-lg">Last 7 Days</SelectItem>
+                <SelectItem value="30d" className="text-lg">Last 30 Days</SelectItem>
+                <SelectItem value="90d" className="text-lg">Last 90 Days</SelectItem>
+              </SelectContent>
+            </Select>
+            <Button
+              variant="outline"
+              onClick={() => mutate()}
+              disabled={isLoading}
+              className="gap-2 h-12 text-lg px-6"
+            >
+              <RefreshCw className={`w-5 h-5 ${isLoading ? 'animate-spin' : ''}`} />
+              Refresh
+            </Button>
+          </div>
         }
       />
 
       <div className="flex-1 p-8 overflow-auto">
-        {/* Filters */}
-        <div className="flex flex-wrap gap-4 mb-8">
-          <div className="flex items-center gap-2">
-            <span className="text-base font-medium text-text-secondary">Period:</span>
-            <Select value={period} onValueChange={setPeriod}>
-              <SelectTrigger className="w-40">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="30d">Last 30 Days</SelectItem>
-                <SelectItem value="60d">Last 60 Days</SelectItem>
-                <SelectItem value="90d">Last 90 Days</SelectItem>
-              </SelectContent>
-            </Select>
-          </div>
-        </div>
-
-        {/* Summary Stats */}
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-8">
-          <Card>
-            <CardContent className="p-6">
-              <p className="text-base font-medium text-text-secondary mb-2">Total Defects</p>
-              <p className="text-4xl font-bold text-danger">{total.toLocaleString()}</p>
-            </CardContent>
-          </Card>
-          <Card>
-            <CardContent className="p-6">
-              <p className="text-base font-medium text-text-secondary mb-2">Top Contributor</p>
-              <p className="text-2xl font-bold text-text-primary">{paretoData[0]?.type}</p>
-              <p className="text-lg text-danger mt-1">{paretoData[0]?.percentage}% of total</p>
-            </CardContent>
-          </Card>
-          <Card>
-            <CardContent className="p-6">
-              <p className="text-base font-medium text-text-secondary mb-2">80% Caused By</p>
-              <p className="text-4xl font-bold text-warning">{threshold80 + 1}</p>
-              <p className="text-base text-text-secondary mt-1">defect types</p>
-            </CardContent>
-          </Card>
-          <Card>
-            <CardContent className="p-6">
-              <p className="text-base font-medium text-text-secondary mb-2">Categories</p>
-              <div className="flex flex-wrap gap-2 mt-2">
-                {Object.entries(categoryColors).slice(0, 4).map(([cat, color]) => (
-                  <Badge key={cat} style={{ backgroundColor: color }} className="text-white">
-                    {cat}
-                  </Badge>
-                ))}
-              </div>
-            </CardContent>
-          </Card>
-        </div>
-
-        {/* Pareto Chart */}
-        <Card className="mb-8">
-          <CardHeader>
-            <CardTitle>Defect Pareto Chart (80/20 Rule)</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="h-96">
-              <ResponsiveContainer width="100%" height="100%">
-                <ComposedChart data={paretoData}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#E8E8E8" />
-                  <XAxis
-                    dataKey="type"
-                    tick={{ fontSize: 12 }}
-                    stroke="#666666"
-                    interval={0}
-                    angle={-20}
-                    textAnchor="end"
-                    height={80}
-                  />
-                  <YAxis
-                    yAxisId="left"
-                    tick={{ fontSize: 14 }}
-                    stroke="#666666"
-                  />
-                  <YAxis
-                    yAxisId="right"
-                    orientation="right"
-                    tickFormatter={(value) => `${value}%`}
-                    tick={{ fontSize: 14 }}
-                    stroke="#666666"
-                    domain={[0, 100]}
-                  />
-                  <Tooltip
-                    contentStyle={{
-                      backgroundColor: 'white',
-                      border: '2px solid #E8E8E8',
-                      borderRadius: '8px',
-                      fontSize: '16px',
-                    }}
-                    formatter={(value, name) => {
-                      if (name === 'count') return [Number(value).toLocaleString(), 'Count'];
-                      return [`${value}%`, 'Cumulative %'];
-                    }}
-                  />
-                  <Bar
-                    yAxisId="left"
-                    dataKey="count"
-                    name="Count"
-                    radius={[4, 4, 0, 0]}
-                  >
-                    {paretoData.map((entry: { category: string }, index: number) => (
-                      <Cell
-                        key={`cell-${index}`}
-                        fill={categoryColors[entry.category] || '#666666'}
-                        opacity={index <= threshold80 ? 1 : 0.5}
-                      />
-                    ))}
-                  </Bar>
-                  <Line
-                    yAxisId="right"
-                    type="monotone"
-                    dataKey="cumulativePercentage"
-                    stroke="#0066CC"
-                    strokeWidth={3}
-                    dot={{ fill: '#0066CC', r: 5 }}
-                    name="Cumulative %"
-                  />
-                </ComposedChart>
-              </ResponsiveContainer>
-            </div>
-            <div className="mt-4 p-4 bg-info/10 rounded-lg border border-info/30">
-              <p className="text-base text-info font-medium">
-                💡 The first {threshold80 + 1} defect types account for {paretoData[threshold80]?.cumulativePercentage}% of all defects.
-                Focus improvement efforts on these categories for maximum impact.
-              </p>
-            </div>
-          </CardContent>
-        </Card>
-
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-          {/* Defect Breakdown Table */}
-          <Card>
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+          {/* Main Pareto Chart */}
+          <Card className="lg:col-span-2 shadow-md">
             <CardHeader>
-              <CardTitle>Defect Breakdown</CardTitle>
+              <CardTitle className="text-2xl">Defect Pareto Analysis (80/20 Rule)</CardTitle>
             </CardHeader>
             <CardContent>
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>Defect Type</TableHead>
-                    <TableHead className="text-right">Count</TableHead>
-                    <TableHead className="text-right">% of Total</TableHead>
-                    <TableHead className="text-right">Cumulative</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {paretoData.map((defect: { type: string; category: string; count: number; percentage: number; cumulativePercentage: number }, index: number) => (
-                    <TableRow
-                      key={defect.type}
-                      className={`cursor-pointer ${selectedDefect === defect.type ? 'bg-primary/10' : ''}`}
-                      onClick={() => setSelectedDefect(defect.type === selectedDefect ? null : defect.type)}
+              <div className="h-[600px]">
+                <ResponsiveContainer width="100%" height="100%">
+                  <ComposedChart data={paretoData} margin={{ top: 20, right: 30, left: 20, bottom: 60 }}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="#E8E8E8" vertical={false} />
+                    <XAxis
+                      dataKey="type"
+                      tick={{ fontSize: 16, fill: '#333', fontWeight: 600 }}
+                      angle={-45}
+                      textAnchor="end"
+                      height={80}
+                      stroke="#666666"
+                    />
+                    <YAxis
+                      yAxisId="left"
+                      tick={{ fontSize: 16, fill: '#333' }}
+                      stroke="#666666"
+                      label={{ value: 'Defect Count', angle: -90, position: 'insideLeft', fontSize: 16, fill: '#666' }}
+                    />
+                    <YAxis
+                      yAxisId="right"
+                      orientation="right"
+                      tick={{ fontSize: 16, fill: '#333' }}
+                      stroke="#666666"
+                      domain={[0, 100]}
+                      tickFormatter={(value) => `${value}%`}
+                      label={{ value: 'Cumulative %', angle: 90, position: 'insideRight', fontSize: 16, fill: '#666' }}
+                    />
+                    <Tooltip
+                      contentStyle={{
+                        backgroundColor: 'white',
+                        border: '2px solid #E8E8E8',
+                        borderRadius: '12px',
+                        fontSize: '18px',
+                        padding: '16px',
+                        boxShadow: '0 4px 12px rgba(0,0,0,0.1)',
+                      }}
+                      formatter={(value, name) => {
+                        if (name === 'count') return [Number(value).toLocaleString(), 'Count'];
+                        return [`${value}%`, 'Cumulative %'];
+                      }}
+                    />
+                    <Legend 
+                      wrapperStyle={{ paddingTop: '20px', fontSize: '18px' }}
+                      iconSize={20}
+                    />
+                    <Bar
+                      yAxisId="left"
+                      dataKey="count"
+                      name="Count"
+                      barSize={60}
+                      onClick={(data) => {
+                        if (data && data.payload && data.payload.type) {
+                          setSelectedDefect(data.payload.type);
+                        }
+                      }}
+                      cursor="pointer"
                     >
-                      <TableCell>
-                        <div className="flex items-center gap-2">
-                          <div
-                            className="w-3 h-3 rounded-full"
-                            style={{ backgroundColor: categoryColors[defect.category] }}
-                          />
-                          <span className={index <= threshold80 ? 'font-semibold' : ''}>
-                            {defect.type}
-                          </span>
-                        </div>
-                      </TableCell>
-                      <TableCell className="text-right font-medium">
-                        {defect.count.toLocaleString()}
-                      </TableCell>
-                      <TableCell className="text-right">
-                        {formatPercentage(defect.percentage)}
-                      </TableCell>
-                      <TableCell className="text-right">
-                        {formatPercentage(defect.cumulativePercentage)}
-                      </TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
-            </CardContent>
-          </Card>
-
-          {/* AI Root Cause Analysis */}
-          <Card className="border-l-4 border-l-primary">
-            <CardHeader>
-              <div className="flex items-center gap-3">
-                <Sparkles className="w-6 h-6 text-primary" />
-                <CardTitle>AI Root Cause Analysis</CardTitle>
-              </div>
-            </CardHeader>
-            <CardContent>
-              {rootCause ? (
-                <>
-                  <p className="text-lg text-text-primary leading-relaxed mb-6">
-                    {rootCause.text}
-                  </p>
-
-                  <div className="mb-6">
-                    <div className="flex items-center justify-between mb-2">
-                      <span className="text-base font-medium text-text-secondary">
-                        Confidence Level
-                      </span>
-                      <span className="text-base font-bold">
-                        {Math.round(rootCause.confidence * 100)}%
-                      </span>
-                    </div>
-                    <div className="h-3 bg-bg-tertiary rounded-full overflow-hidden">
-                      <div
-                        className="h-full bg-primary transition-all"
-                        style={{ width: `${rootCause.confidence * 100}%` }}
-                      />
-                    </div>
-                  </div>
-
-                  <div className="bg-bg-secondary rounded-lg p-4">
-                    <h4 className="text-base font-semibold text-text-secondary mb-3">
-                      Recommended Actions
-                    </h4>
-                    <ul className="space-y-3">
-                      {rootCause.actionItems.map((item: string, idx: number) => (
-                        <li key={idx} className="flex items-start gap-3 text-base">
-                          <CheckCircle className="w-5 h-5 text-success mt-0.5 flex-shrink-0" />
-                          <span>{item}</span>
-                        </li>
+                      {paretoData.map((entry: { category: string }, index: number) => (
+                        <Cell 
+                          key={`cell-${index}`} 
+                          fill={categoryColors[entry.category] || '#666666'} 
+                          strokeWidth={selectedDefect === entry.category ? 2 : 0}
+                          stroke="#000"
+                        />
                       ))}
-                    </ul>
-                  </div>
-                </>
-              ) : (
-                <div className="flex items-center justify-center py-12 text-text-secondary">
-                  <AlertCircle className="w-6 h-6 mr-2" />
-                  <span>Select a defect type to see AI analysis</span>
-                </div>
-              )}
+                    </Bar>
+                    <Line
+                      yAxisId="right"
+                      type="monotone"
+                      dataKey="cumulativePercentage"
+                      name="Cumulative %"
+                      stroke="#333333"
+                      strokeWidth={3}
+                      dot={{ r: 6, fill: '#333' }}
+                    />
+                  </ComposedChart>
+                </ResponsiveContainer>
+              </div>
             </CardContent>
           </Card>
+
+          {/* Right Column: AI Insights & Details */}
+          <div className="space-y-8">
+            {/* AI Root Cause */}
+            <Card className="border-l-8 border-l-primary shadow-md">
+              <CardHeader className="flex-row items-center gap-3 pb-2">
+                <Sparkles className="w-8 h-8 text-primary" />
+                <CardTitle className="text-2xl">AI Root Cause Analysis</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="bg-primary/5 p-6 rounded-lg mb-6">
+                  <p className="text-xl text-text-primary leading-relaxed font-medium">
+                    {rootCause?.text || 'Analyzing defect patterns...'}
+                  </p>
+                  {rootCause?.confidence && (
+                    <div className="mt-4 flex items-center gap-2">
+                      <Badge variant="outline" className="text-lg px-3 py-1">
+                        Confidence: {formatPercentage(rootCause.confidence * 100)}
+                      </Badge>
+                    </div>
+                  )}
+                </div>
+
+                <div className="space-y-4">
+                  <h4 className="text-lg font-bold text-text-secondary uppercase tracking-wide">
+                    Suggested Actions
+                  </h4>
+                  {rootCause?.actionItems?.map((item: string, idx: number) => (
+                    <div key={idx} className="flex gap-4 p-4 bg-white border border-bg-tertiary rounded-lg shadow-sm">
+                      <div className="mt-1">
+                        <CheckCircle className="w-6 h-6 text-success" />
+                      </div>
+                      <p className="text-lg text-text-primary">{item}</p>
+                    </div>
+                  ))}
+                </div>
+              </CardContent>
+            </Card>
+
+            {/* Defect Breakdown Table */}
+            <Card className="shadow-md">
+              <CardHeader>
+                <CardTitle className="text-2xl">Defect Breakdown</CardTitle>
+              </CardHeader>
+              <CardContent className="p-0">
+                <Table>
+                  <TableHeader>
+                    <TableRow className="bg-bg-secondary hover:bg-bg-secondary">
+                      <TableHead className="text-lg font-bold h-14">Defect Type</TableHead>
+                      <TableHead className="text-lg font-bold h-14 text-right">Count</TableHead>
+                      <TableHead className="text-lg font-bold h-14 text-right">%</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {paretoData.map((defect: { type: string; count: number; percentage: number }) => (
+                      <TableRow 
+                        key={defect.type}
+                        className={selectedDefect === defect.type ? 'bg-primary/5' : ''}
+                      >
+                        <TableCell className="text-lg font-medium py-4">{defect.type}</TableCell>
+                        <TableCell className="text-lg py-4 text-right">{defect.count.toLocaleString()}</TableCell>
+                        <TableCell className="text-lg py-4 text-right font-bold">{defect.percentage}%</TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </CardContent>
+            </Card>
+          </div>
         </div>
       </div>
     </>
