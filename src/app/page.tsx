@@ -1,223 +1,394 @@
-import { Suspense } from 'react';
-import TopBar from '@/components/TopBar';
-import KPICard from '@/components/KPICard';
-import RiskBadge, { calculateRiskLevel } from '@/components/RiskBadge';
-import styles from './page.module.css';
-import { subDays, format } from 'date-fns';
+'use client';
 
-// Mock data - will be replaced with Supabase data
-const MOCK_BATCHES = [
-  { id: 'BT-2025-089', product: 'Valve Assembly', defectType: 'Leak, Misalign', rejected: 45, produced: 1000, stagesFailed: 3 },
-  { id: 'BT-2025-087', product: 'Pump Housing', defectType: 'Crack', rejected: 18, produced: 1500, stagesFailed: 2 },
-  { id: 'BT-2025-085', product: 'Connector', defectType: 'Minor dent', rejected: 12, produced: 2000, stagesFailed: 1 },
-  { id: 'BT-2025-084', product: 'Seal Ring', defectType: 'Scratch', rejected: 8, produced: 1200, stagesFailed: 1 },
-  { id: 'BT-2025-083', product: 'Gasket', defectType: 'Color mismatch', rejected: 5, produced: 1800, stagesFailed: 1 },
+import React from 'react';
+import useSWR from 'swr';
+import { DashboardHeader } from '@/components/layout';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
+import {
+  TrendingUp,
+  TrendingDown,
+  AlertTriangle,
+  Package,
+  DollarSign,
+  Activity,
+  ArrowRight,
+  RefreshCw,
+  Sparkles,
+} from 'lucide-react';
+import Link from 'next/link';
+import {
+  XAxis,
+  YAxis,
+  CartesianGrid,
+  Tooltip,
+  ResponsiveContainer,
+  Area,
+  AreaChart,
+} from 'recharts';
+import { formatCurrency, formatPercentage, formatDate } from '@/lib/utils';
+
+// Fetcher for SWR
+const fetcher = (url: string) => fetch(url).then((res) => res.json());
+
+// Mock data for demo
+const mockTrendData = [
+  { date: '2026-01-28', produced: 5200, rejected: 390, rejectionRate: 7.5 },
+  { date: '2026-01-29', produced: 4800, rejected: 410, rejectionRate: 8.5 },
+  { date: '2026-01-30', produced: 5100, rejected: 380, rejectionRate: 7.5 },
+  { date: '2026-01-31', produced: 4900, rejected: 450, rejectionRate: 9.2 },
+  { date: '2026-02-01', produced: 5000, rejected: 420, rejectionRate: 8.4 },
+  { date: '2026-02-02', produced: 5300, rejected: 395, rejectionRate: 7.5 },
+  { date: '2026-02-03', produced: 4700, rejected: 385, rejectionRate: 8.2 },
 ];
 
-const MOCK_KPI_DATA = {
-  batchesAtRisk: { value: '12', delta: '2', direction: 'up' as const, isGood: false },
-  avgDefectsPerBatch: { value: '3.2', delta: '0.5', direction: 'up' as const, isGood: false },
-  scrapProbability: { value: '4.5%', delta: '1.2%', direction: 'up' as const, isGood: false },
-  financialLoss: { value: '₹11.1M', delta: '₹2.3M', direction: 'up' as const, isGood: false },
-};
+const mockHighRiskBatches = [
+  { id: '1', batchNumber: 'BR-2401', rejectionRate: 15.2, productionDate: '2026-02-01' },
+  { id: '2', batchNumber: 'BR-2398', rejectionRate: 12.8, productionDate: '2026-01-30' },
+  { id: '3', batchNumber: 'BR-2405', rejectionRate: 11.5, productionDate: '2026-02-02' },
+];
 
-function ExecutiveOverviewContent() {
-  const today = new Date();
-  const from = subDays(today, 30);
-
-  // Calculate high risk batches
-  const highRiskBatches = MOCK_BATCHES.filter(batch => {
-    const rate = batch.rejected / batch.produced;
-    return calculateRiskLevel(rate) === 'HIGH';
+export default function DashboardPage() {
+  const { data, error, isLoading, mutate } = useSWR('/api/analytics/overview?period=30d', fetcher, {
+    refreshInterval: 60000,
+    fallbackData: {
+      success: true,
+      data: {
+        rejectionRate: { current: 8.2, previous: 7.0, change: 1.2, trend: 'up' },
+        rejectedUnits: { current: 1234, previous: 1078, change: 156 },
+        estimatedCost: { current: 450570, previous: 393470, change: 57100, currency: 'INR' },
+        highRiskBatches: { count: 3, batches: mockHighRiskBatches },
+        watchBatches: { count: 5 },
+        aiSummary: {
+          text: 'Rejection rate increased by 1.2% this week. Main driver: visual defects in Batch BR-2401. 3 batches at high risk of scrapping require immediate review.',
+          sentiment: 'concerning',
+          actionItems: [
+            'Review Batch BR-2401 immediately',
+            'Inspect incoming material from supplier S-401',
+            'Schedule quality meeting with production team',
+          ],
+        },
+      },
+    },
   });
 
+  const kpis = data?.data || {};
+
   return (
-    <div className={styles.container}>
-      <TopBar
-        title="Executive Overview"
-        subtitle="Monitor manufacturing quality and batch risk status"
-        userName="General Manager"
+    <>
+      <DashboardHeader
+        title="Dashboard"
+        description="Manufacturing rejection overview & insights"
+        actions={
+          <Button
+            variant="outline"
+            onClick={() => mutate()}
+            disabled={isLoading}
+            className="gap-2"
+          >
+            <RefreshCw className={`w-5 h-5 ${isLoading ? 'animate-spin' : ''}`} />
+            Refresh
+          </Button>
+        }
       />
 
-      <main className={styles.main}>
-        {/* Quick Actions Section */}
-        <section className={styles.quickActionsSection}>
-          <h2 className={styles.quickActionsTitle}>Quick Actions</h2>
-          <div className={styles.quickActionsRow}>
-            <a href="/settings/upload" className={styles.uploadCtaButton}>
-              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
-                <polyline points="17 8 12 3 7 8" />
-                <line x1="12" y1="3" x2="12" y2="15" />
-              </svg>
-              <span>Upload Data</span>
-            </a>
-            <a href="/reports" className={styles.secondaryActionButton}>
-              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
-                <polyline points="14 2 14 8 20 8" />
-                <line x1="16" y1="13" x2="8" y2="13" />
-                <line x1="16" y1="17" x2="8" y2="17" />
-                <polyline points="10 9 9 9 8 9" />
-              </svg>
-              <span>Generate Report</span>
-            </a>
-          </div>
-        </section>
+      <div className="flex-1 p-8 overflow-auto">
+        {/* KPI Cards */}
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
+          <KPICard
+            title="Overall Rejection Rate"
+            value={formatPercentage(kpis.rejectionRate?.current || 0)}
+            change={{
+              value: kpis.rejectionRate?.change || 0,
+              direction: kpis.rejectionRate?.trend as 'up' | 'down',
+              label: 'vs last period',
+            }}
+            icon={<Activity className="w-8 h-8" />}
+            variant={kpis.rejectionRate?.trend === 'up' ? 'danger' : 'success'}
+          />
+          <KPICard
+            title="Rejected Units"
+            value={(kpis.rejectedUnits?.current || 0).toLocaleString()}
+            change={{
+              value: Math.abs(kpis.rejectedUnits?.change || 0),
+              direction: (kpis.rejectedUnits?.change || 0) > 0 ? 'up' : 'down',
+              label: 'units',
+            }}
+            icon={<Package className="w-8 h-8" />}
+            variant="warning"
+          />
+          <KPICard
+            title="Estimated Cost"
+            value={formatCurrency(kpis.estimatedCost?.current || 0, 'INR')}
+            change={{
+              value: Math.abs(kpis.estimatedCost?.change || 0),
+              direction: (kpis.estimatedCost?.change || 0) > 0 ? 'up' : 'down',
+              label: formatCurrency(Math.abs(kpis.estimatedCost?.change || 0), 'INR'),
+            }}
+            icon={<DollarSign className="w-8 h-8" />}
+            variant="danger"
+          />
+          <KPICard
+            title="High-Risk Batches"
+            value={kpis.highRiskBatches?.count || 0}
+            subtitle={`${kpis.watchBatches?.count || 0} on watch`}
+            icon={<AlertTriangle className="w-8 h-8" />}
+            variant={(kpis.highRiskBatches?.count || 0) > 0 ? 'danger' : 'success'}
+          />
+        </div>
 
-        {/* Section 1: KPI Summary Cards */}
-        <section className={styles.kpiSection}>
-          <div className={styles.kpiRow}>
-            <KPICard
-              value={MOCK_KPI_DATA.batchesAtRisk.value}
-              label="Batches at Risk"
-              delta={{
-                value: `${MOCK_KPI_DATA.batchesAtRisk.delta} new`,
-                direction: MOCK_KPI_DATA.batchesAtRisk.direction,
-                isGood: MOCK_KPI_DATA.batchesAtRisk.isGood,
-              }}
-              subtext="Require immediate attention"
-              variant="alert"
-            />
-            <KPICard
-              value={MOCK_KPI_DATA.avgDefectsPerBatch.value}
-              label="Avg Defects per Batch"
-              delta={{
-                value: `${MOCK_KPI_DATA.avgDefectsPerBatch.delta} vs last period`,
-                direction: MOCK_KPI_DATA.avgDefectsPerBatch.direction,
-                isGood: MOCK_KPI_DATA.avgDefectsPerBatch.isGood,
-              }}
-              subtext="Industry avg: 2.1"
-            />
-            <KPICard
-              value={MOCK_KPI_DATA.scrapProbability.value}
-              label="Scrap Probability"
-              delta={{
-                value: `${MOCK_KPI_DATA.scrapProbability.delta} increase`,
-                direction: MOCK_KPI_DATA.scrapProbability.direction,
-                isGood: MOCK_KPI_DATA.scrapProbability.isGood,
-              }}
-              subtext="Based on rejection trends"
-            />
-            <KPICard
-              value={MOCK_KPI_DATA.financialLoss.value}
-              label="Potential Financial Loss"
-              delta={{
-                value: `${MOCK_KPI_DATA.financialLoss.delta} projected`,
-                direction: MOCK_KPI_DATA.financialLoss.direction,
-                isGood: MOCK_KPI_DATA.financialLoss.isGood,
-              }}
-              subtext="Next 30 days forecast"
-            />
-          </div>
-        </section>
-
-        {/* Section 2 & 3: High Risk Batch List + Insight Panel */}
-        <section className={styles.batchSection}>
-          {/* High Risk Batch List - 8 columns */}
-          <div className={styles.batchListContainer}>
-            <div className={styles.sectionHeader}>
-              <h2 className={styles.sectionTitle}>High Risk Batch List</h2>
-              <div className={styles.timeFilter}>
-                <button className={`${styles.filterButton} ${styles.filterActive}`}>Past 7 Days</button>
-                <button className={styles.filterButton}>30 Days</button>
-                <button className={styles.filterButton}>90 Days</button>
+        {/* Main Content Grid */}
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+          {/* AI Summary */}
+          <Card className="lg:col-span-2 border-l-4 border-l-warning">
+            <CardHeader className="flex-row items-center justify-between">
+              <div className="flex items-center gap-3">
+                <Sparkles className="w-6 h-6 text-primary" />
+                <CardTitle>AI Health Summary</CardTitle>
               </div>
-            </div>
-
-            <div className={styles.tableCard}>
-              <table className={styles.table}>
-                <thead>
-                  <tr>
-                    <th>Batch ID</th>
-                    <th>Product</th>
-                    <th>Key Defect Type</th>
-                    <th>Risk Level</th>
-                    <th>Action</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {MOCK_BATCHES.map((batch) => {
-                    const rejectionRate = batch.rejected / batch.produced;
-                    const riskLevel = calculateRiskLevel(rejectionRate);
-                    
-                    return (
-                      <tr key={batch.id} className={styles.tableRow}>
-                        <td className={styles.batchId}>{batch.id}</td>
-                        <td className={styles.product}>{batch.product}</td>
-                        <td className={styles.defectType}>{batch.defectType}</td>
-                        <td className={styles.riskCell}>
-                          <RiskBadge level={riskLevel} />
-                        </td>
-                        <td className={styles.actionCell}>
-                          <button className={styles.actionButton} aria-label={`Inspect batch ${batch.id}`}>
-                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                              <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" />
-                              <circle cx="12" cy="12" r="3" />
-                            </svg>
-                          </button>
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            </div>
-          </div>
-
-          {/* Insight Panel - 4 columns */}
-          <div className={styles.insightPanel}>
-            <div className={styles.insightCard}>
-              <div className={styles.insightIcon}>
-                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                  <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z" />
-                  <line x1="12" y1="9" x2="12" y2="13" />
-                  <line x1="12" y1="17" x2="12.01" y2="17" />
-                </svg>
-              </div>
-              <h3 className={styles.insightTitle}>Quality Alert</h3>
-              <p className={styles.insightText}>
-                <strong>45% failure rate</strong> detected in valve assembly batches. 
-                Leak defects from Supplier B are driving the rejection rate up.
+              <SentimentBadge sentiment={kpis.aiSummary?.sentiment} />
+            </CardHeader>
+            <CardContent>
+              <p className="text-lg text-text-primary leading-relaxed mb-6">
+                {kpis.aiSummary?.text || 'Loading AI insights...'}
               </p>
-              <button className={styles.insightCta}>
-                Inspect Batch #BT-2025-089
-              </button>
-            </div>
+              
+              {kpis.aiSummary?.actionItems && (
+                <div className="bg-bg-secondary rounded-lg p-4">
+                  <h4 className="text-base font-semibold text-text-secondary mb-3">
+                    Recommended Actions
+                  </h4>
+                  <ul className="space-y-2">
+                    {kpis.aiSummary.actionItems.map((item: string, idx: number) => (
+                      <li key={idx} className="flex items-start gap-2 text-base">
+                        <span className="text-primary mt-1">▶</span>
+                        <span>{item}</span>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+            </CardContent>
+          </Card>
 
-            {/* Secondary insight */}
-            <div className={`${styles.insightCard} ${styles.insightSecondary}`}>
-              <div className={`${styles.insightIcon} ${styles.insightIconSecondary}`}>
-                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                  <circle cx="12" cy="12" r="10" />
-                  <line x1="12" y1="16" x2="12" y2="12" />
-                  <line x1="12" y1="8" x2="12.01" y2="8" />
-                </svg>
+          {/* High-Risk Batches */}
+          <Card>
+            <CardHeader className="flex-row items-center justify-between">
+              <CardTitle className="flex items-center gap-2">
+                <AlertTriangle className="w-5 h-5 text-danger" />
+                High-Risk Batches
+              </CardTitle>
+              <Link href="/batch-risk">
+                <Button variant="ghost" size="sm" className="gap-1">
+                  View All <ArrowRight className="w-4 h-4" />
+                </Button>
+              </Link>
+            </CardHeader>
+            <CardContent>
+              <div className="space-y-4">
+                {(kpis.highRiskBatches?.batches || mockHighRiskBatches).map(
+                  (batch: { id: string; batchNumber: string; rejectionRate: number; productionDate: string }) => (
+                    <div
+                      key={batch.id}
+                      className="flex items-center justify-between p-4 bg-danger/5 rounded-lg border border-danger/20"
+                    >
+                      <div>
+                        <p className="text-lg font-semibold text-text-primary">
+                          {batch.batchNumber}
+                        </p>
+                        <p className="text-sm text-text-secondary">
+                          {formatDate(batch.productionDate)}
+                        </p>
+                      </div>
+                      <div className="text-right">
+                        <p className="text-xl font-bold text-danger">
+                          {formatPercentage(batch.rejectionRate)}
+                        </p>
+                        <p className="text-sm text-text-secondary">rejection</p>
+                      </div>
+                    </div>
+                  )
+                )}
               </div>
-              <h3 className={styles.insightTitle}>Recommendation</h3>
-              <p className={styles.insightText}>
-                Consider increasing sampling rate for Assembly stage to catch defects earlier.
-              </p>
-              <button className={`${styles.insightCta} ${styles.insightCtaSecondary}`}>
-                Review Process
-              </button>
-            </div>
-          </div>
-        </section>
+            </CardContent>
+          </Card>
+        </div>
 
-        {/* Date Range Footer */}
-        <footer className={styles.dateFooter}>
-          <span>Data period: {format(from, 'MMM d')} - {format(today, 'MMM d, yyyy')}</span>
-        </footer>
-      </main>
-    </div>
+        {/* Trend Chart */}
+        <Card className="mt-6">
+          <CardHeader className="flex-row items-center justify-between">
+            <CardTitle>Rejection Trend (Last 7 Days)</CardTitle>
+            <Link href="/trends">
+              <Button variant="outline" size="sm" className="gap-1">
+                View Details <ArrowRight className="w-4 h-4" />
+              </Button>
+            </Link>
+          </CardHeader>
+          <CardContent>
+            <div className="h-80">
+              <ResponsiveContainer width="100%" height="100%">
+                <AreaChart data={mockTrendData}>
+                  <defs>
+                    <linearGradient id="colorRejection" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="5%" stopColor="#CC0000" stopOpacity={0.2} />
+                      <stop offset="95%" stopColor="#CC0000" stopOpacity={0} />
+                    </linearGradient>
+                  </defs>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#E8E8E8" />
+                  <XAxis
+                    dataKey="date"
+                    tickFormatter={(date) => formatDate(date).split(' ').slice(0, 2).join(' ')}
+                    tick={{ fontSize: 14 }}
+                    stroke="#666666"
+                  />
+                  <YAxis
+                    tickFormatter={(value) => `${value}%`}
+                    tick={{ fontSize: 14 }}
+                    stroke="#666666"
+                    domain={[0, 'auto']}
+                  />
+                  <Tooltip
+                    contentStyle={{
+                      backgroundColor: 'white',
+                      border: '2px solid #E8E8E8',
+                      borderRadius: '8px',
+                      fontSize: '16px',
+                    }}
+                    formatter={(value) => [`${value}%`, 'Rejection Rate']}
+                    labelFormatter={(date) => formatDate(date)}
+                  />
+                  <Area
+                    type="monotone"
+                    dataKey="rejectionRate"
+                    stroke="#CC0000"
+                    strokeWidth={3}
+                    fillOpacity={1}
+                    fill="url(#colorRejection)"
+                  />
+                </AreaChart>
+              </ResponsiveContainer>
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* Quick Actions */}
+        <div className="mt-6 grid grid-cols-1 md:grid-cols-3 gap-4">
+          <Link href="/analysis">
+            <Card className="hover:border-primary cursor-pointer transition-all border-2 border-transparent">
+              <CardContent className="p-6 flex items-center gap-4">
+                <div className="w-12 h-12 bg-primary/10 rounded-lg flex items-center justify-center">
+                  <Activity className="w-6 h-6 text-primary" />
+                </div>
+                <div>
+                  <p className="text-lg font-semibold">Analyze Defects</p>
+                  <p className="text-base text-text-secondary">View Pareto analysis</p>
+                </div>
+              </CardContent>
+            </Card>
+          </Link>
+          <Link href="/settings/upload">
+            <Card className="hover:border-primary cursor-pointer transition-all border-2 border-transparent">
+              <CardContent className="p-6 flex items-center gap-4">
+                <div className="w-12 h-12 bg-success/10 rounded-lg flex items-center justify-center">
+                  <Package className="w-6 h-6 text-success" />
+                </div>
+                <div>
+                  <p className="text-lg font-semibold">Upload Data</p>
+                  <p className="text-base text-text-secondary">Import Excel files</p>
+                </div>
+              </CardContent>
+            </Card>
+          </Link>
+          <Link href="/reports">
+            <Card className="hover:border-primary cursor-pointer transition-all border-2 border-transparent">
+              <CardContent className="p-6 flex items-center gap-4">
+                <div className="w-12 h-12 bg-warning/10 rounded-lg flex items-center justify-center">
+                  <DollarSign className="w-6 h-6 text-warning" />
+                </div>
+                <div>
+                  <p className="text-lg font-semibold">Generate Report</p>
+                  <p className="text-base text-text-secondary">Download summaries</p>
+                </div>
+              </CardContent>
+            </Card>
+          </Link>
+        </div>
+      </div>
+    </>
   );
 }
 
-export default function ExecutiveOverviewPage() {
+// KPI Card Component
+interface KPICardProps {
+  title: string;
+  value: string | number;
+  change?: {
+    value: number;
+    direction: 'up' | 'down';
+    label: string;
+  };
+  subtitle?: string;
+  icon?: React.ReactNode;
+  variant?: 'default' | 'success' | 'warning' | 'danger';
+}
+
+function KPICard({ title, value, change, subtitle, icon, variant = 'default' }: KPICardProps) {
+  const colorMap = {
+    default: 'text-text-primary',
+    success: 'text-success',
+    warning: 'text-warning',
+    danger: 'text-danger',
+  };
+
+  const changeColorMap = {
+    up: 'text-danger',
+    down: 'text-success',
+  };
+
   return (
-    <Suspense fallback={<div className={styles.loading}>Loading executive overview...</div>}>
-      <ExecutiveOverviewContent />
-    </Suspense>
+    <Card>
+      <CardContent className="p-6">
+        <div className="flex items-start justify-between">
+          <div className="flex-1">
+            <p className="text-base font-medium text-text-secondary mb-2">{title}</p>
+            <p className={`text-4xl font-bold ${colorMap[variant]}`}>{value}</p>
+            {change && (
+              <div className="flex items-center gap-2 mt-2">
+                {change.direction === 'up' ? (
+                  <TrendingUp className="w-5 h-5 text-danger" />
+                ) : (
+                  <TrendingDown className="w-5 h-5 text-success" />
+                )}
+                <span className={`text-base font-medium ${changeColorMap[change.direction]}`}>
+                  {typeof change.value === 'number' && change.value > 0 ? '+' : ''}
+                  {change.label}
+                </span>
+              </div>
+            )}
+            {subtitle && (
+              <p className="text-base text-text-secondary mt-2">{subtitle}</p>
+            )}
+          </div>
+          {icon && (
+            <div className={`${colorMap[variant]} opacity-50`}>{icon}</div>
+          )}
+        </div>
+      </CardContent>
+    </Card>
   );
+}
+
+// Sentiment Badge Component
+function SentimentBadge({ sentiment }: { sentiment?: string }) {
+  const config: Record<string, { label: string; variant: 'success' | 'warning' | 'destructive' | 'default' }> = {
+    positive: { label: '✅ Positive', variant: 'success' },
+    neutral: { label: 'ℹ️ Neutral', variant: 'default' },
+    concerning: { label: '⚠️ Concerning', variant: 'warning' },
+    critical: { label: '🚨 Critical', variant: 'destructive' },
+  };
+
+  const { label, variant } = config[sentiment || 'neutral'] || config.neutral;
+
+  return <Badge variant={variant}>{label}</Badge>;
 }

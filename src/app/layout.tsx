@@ -1,18 +1,18 @@
 import type { Metadata } from "next";
 import { Inter } from "next/font/google";
 import "./globals.css";
-import Sidebar from "@/components/Sidebar";
+import { DashboardLayout } from "@/components/layout";
 
-const inter = Inter({
+const inter = Inter({ 
   subsets: ["latin"],
-  variable: "--font-inter",
-  display: "swap",
-  weight: ["400", "500", "600", "700"],
+  display: 'swap',
+  variable: '--font-inter',
 });
 
 export const metadata: Metadata = {
-  title: "RAIS - Manufacturing Quality Dashboard",
-  description: "Executive-grade Manufacturing Quality & Rejection Statistics Dashboard",
+  title: "RAIS - Rejection Analysis & Intelligence System",
+  description: "Manufacturing quality dashboard for rejection analysis, batch risk monitoring, and AI-powered insights",
+  keywords: ["manufacturing", "quality control", "rejection analysis", "batch monitoring", "AI insights"],
 };
 
 export default function RootLayout({
@@ -21,16 +21,16 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en">
-      <body className={inter.className}>
-        <div className="app-container">
-          <div className="main-wrapper">
-            <Sidebar />
-            <div className="main-content">
-              {children}
-            </div>
+    <html lang="en" className={inter.variable}>
+      <body className="font-sans antialiased">
+        <a href="#main-content" className="skip-to-main">
+          Skip to main content
+        </a>
+        <DashboardLayout>
+          <div id="main-content">
+            {children}
           </div>
-        </div>
+        </DashboardLayout>
       </body>
     </html>
   );

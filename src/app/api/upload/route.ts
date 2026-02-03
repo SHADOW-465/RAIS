@@ -1,149 +1,325 @@
+/**
+ * Upload API Route
+ * POST /api/upload - Handle Excel file uploads
+ * GET /api/upload - Get upload history
+ */
+
 import { NextRequest, NextResponse } from 'next/server';
 import { v4 as uuidv4 } from 'uuid';
-import crypto from 'crypto';
-import { excelProcessor } from '@/lib/upload';
-import { uploadRepository } from '@/lib/db/repositories/uploadRepository';
-import { supabaseAdmin } from '@/lib/db/supabaseClient';
-import { config } from '@/lib/config';
+import { supabaseAdmin, uploadFile } from '@/lib/db/client';
+import { processExcelFile, detectFileSchema } from '@/lib/upload';
+import type { FileType } from '@/lib/db/types';
 
-const MAX_FILE_SIZE = 50 * 1024 * 1024; // 50MB
+export const runtime = 'nodejs';
+export const dynamic = 'force-dynamic';
+
+// Max file size: 10MB
+const MAX_FILE_SIZE = 10 * 1024 * 1024;
+
+// ============================================================================
+// POST - Upload and process Excel file
+// ============================================================================
 
 export async function POST(request: NextRequest) {
+  const uploadId = uuidv4();
+  const startTime = Date.now();
+
   try {
+    // Parse form data
     const formData = await request.formData();
-    const file = formData.get('file') as File;
-    const mappingsJson = formData.get('mappings') as string;
-    const optionsJson = formData.get('options') as string;
-    
+    const file = formData.get('file') as File | null;
+    const forceType = formData.get('fileType') as FileType | null;
+    const skipValidation = formData.get('skipValidation') === 'true';
+
     if (!file) {
       return NextResponse.json(
-        { error: 'No file provided' },
+        {
+          success: false,
+          error: { code: 'NO_FILE', message: 'No file provided' },
+        },
         { status: 400 }
       );
     }
-    
+
+    // Validate file type
+    const validExtensions = ['.xlsx', '.xls', '.csv'];
+    const fileExt = file.name.toLowerCase().slice(file.name.lastIndexOf('.'));
+    if (!validExtensions.includes(fileExt)) {
+      return NextResponse.json(
+        {
+          success: false,
+          error: {
+            code: 'INVALID_TYPE',
+            message: `Invalid file type. Allowed: ${validExtensions.join(', ')}`,
+          },
+        },
+        { status: 400 }
+      );
+    }
+
     // Validate file size
     if (file.size > MAX_FILE_SIZE) {
       return NextResponse.json(
-        { error: 'File too large', maxSize: MAX_FILE_SIZE },
-        { status: 413 }
-      );
-    }
-    
-    // Validate file type
-    if (!file.name.match(/\.(xlsx|xls)$/i)) {
-      return NextResponse.json(
-        { error: 'Invalid file format. Only .xlsx and .xls files are supported' },
-        { status: 400 }
-      );
-    }
-    
-    // Parse mappings
-    let mappings;
-    try {
-      mappings = JSON.parse(mappingsJson || '[]');
-    } catch {
-      return NextResponse.json(
-        { error: 'Invalid mappings JSON' },
-        { status: 400 }
-      );
-    }
-    
-    // Parse options
-    let options;
-    try {
-      options = JSON.parse(optionsJson || '{}');
-    } catch {
-      options = {};
-    }
-    
-    // Read file buffer
-    const bytes = await file.arrayBuffer();
-    const buffer = Buffer.from(bytes);
-    
-    // Calculate file hash for duplicate detection
-    const fileHash = crypto.createHash('sha256').update(buffer).digest('hex');
-    
-    // Check for duplicates
-    const existing = await uploadRepository.findByHash(fileHash);
-    if (existing && options.onDuplicate !== 'PROCESS') {
-      return NextResponse.json(
-        { 
-          error: 'File already uploaded', 
-          uploadedAt: existing.uploadedAt,
-          fileId: existing.id,
+        {
+          success: false,
+          error: {
+            code: 'FILE_TOO_LARGE',
+            message: `File size exceeds ${MAX_FILE_SIZE / 1024 / 1024}MB limit`,
+          },
         },
-        { status: 409 }
+        { status: 400 }
       );
     }
-    
-    // Create upload record
-    const uploadId = await uploadRepository.create({
-      originalFilename: file.name,
-      fileHash,
-      fileSizeBytes: file.size,
-      status: 'PROCESSING',
-    });
-    
-    // Upload to Supabase Storage
-    const now = new Date();
-    const year = now.getFullYear();
-    const month = String(now.getMonth() + 1).padStart(2, '0');
-    const fileName = `${uuidv4()}_${file.name}`;
-    const storagePath = `${year}/${month}/${fileName}`;
-    
-    const { error: storageError } = await supabaseAdmin.storage
-      .from(config.SUPABASE_STORAGE_BUCKET)
-      .upload(storagePath, buffer, {
-        contentType: file.type || 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-        upsert: false,
+
+    // Convert file to buffer
+    const arrayBuffer = await file.arrayBuffer();
+    const buffer = Buffer.from(arrayBuffer);
+
+    // Create upload history record
+    const storagePath = `uploads/${uploadId}/${file.name}`;
+
+    try {
+      await supabaseAdmin.from('upload_history').insert({
+        id: uploadId,
+        filename: `${uploadId}_${file.name}`,
+        original_filename: file.name,
+        file_size: file.size,
+        storage_path: storagePath,
+        bucket_name: 'uploads',
+        upload_status: 'processing',
+        records_imported: 0,
+        records_failed: 0,
+        uploaded_at: new Date().toISOString(),
+        processing_started_at: new Date().toISOString(),
       });
-    
-    if (storageError) {
-      console.error('Supabase Storage error:', storageError);
-      // Update record as failed
-      await uploadRepository.update(uploadId, {
-        status: 'FAILED',
-        errorMessage: `Storage upload failed: ${storageError.message}`,
-      });
-      
-      return NextResponse.json(
-        { error: 'Failed to upload file to storage' },
-        { status: 500 }
-      );
+    } catch (dbError) {
+      console.log('Could not create upload history record:', dbError);
+      // Continue processing even if history record fails
     }
-    
-    // Update upload record with storage path
-    await uploadRepository.update(uploadId, {
-      storedPath: storagePath,
+
+    // Upload file to Supabase Storage
+    try {
+      await uploadFile(buffer, storagePath, 'uploads');
+    } catch (storageError) {
+      console.log('Could not upload to storage:', storageError);
+      // Continue processing even if storage fails
+    }
+
+    // Process the Excel file
+    const result = await processExcelFile(buffer, {
+      forceFileType: forceType || undefined,
+      skipValidation,
     });
-    
-    // Process Excel
-    const result = await excelProcessor.process(buffer, mappings, {
-      ...options,
-      uploadedFileId: uploadId,
-    });
-    
-    // Update upload record with results
-    await uploadRepository.update(uploadId, {
-      status: result.success ? 'COMPLETED' : 'FAILED',
-      recordsProcessed: result.recordsProcessed,
-      recordsFailed: result.recordsFailed,
-      errorMessage: result.errors.length > 0 ? JSON.stringify(result.errors.slice(0, 10)) : undefined,
-    });
-    
+
+    // Insert transformed data into database
+    let recordsImported = 0;
+    let recordsFailed = 0;
+
+    if (result.success && result.transform.batches.length > 0) {
+      try {
+        // Insert batches
+        const { data: batchData, error: batchError } = await supabaseAdmin
+          .from('batches')
+          .upsert(
+            result.transform.batches.map((b) => ({
+              ...b,
+              created_at: new Date().toISOString(),
+              updated_at: new Date().toISOString(),
+            })),
+            { onConflict: 'batch_number' }
+          )
+          .select('id');
+
+        if (batchError) {
+          console.error('Batch insert error:', batchError);
+          recordsFailed += result.transform.batches.length;
+        } else {
+          recordsImported += batchData?.length || 0;
+        }
+
+        // Insert inspection records
+        if (result.transform.inspections.length > 0) {
+          const { data: inspData, error: inspError } = await supabaseAdmin
+            .from('inspection_records')
+            .insert(
+              result.transform.inspections.map((i) => ({
+                ...i,
+                created_at: new Date().toISOString(),
+              }))
+            )
+            .select('id');
+
+          if (inspError) {
+            console.error('Inspection insert error:', inspError);
+            recordsFailed += result.transform.inspections.length;
+          } else {
+            recordsImported += inspData?.length || 0;
+          }
+        }
+
+        // Insert defects
+        if (result.transform.defects.length > 0) {
+          const { data: defectData, error: defectError } = await supabaseAdmin
+            .from('defects')
+            .insert(
+              result.transform.defects.map((d) => ({
+                ...d,
+                created_at: new Date().toISOString(),
+              }))
+            )
+            .select('id');
+
+          if (defectError) {
+            console.error('Defect insert error:', defectError);
+            recordsFailed += result.transform.defects.length;
+          } else {
+            recordsImported += defectData?.length || 0;
+          }
+        }
+      } catch (insertError) {
+        console.error('Database insert error:', insertError);
+        recordsFailed = result.transform.stats.batchesCreated;
+      }
+    }
+
+    // Update upload history
+    try {
+      await supabaseAdmin
+        .from('upload_history')
+        .update({
+          file_type: result.fileType,
+          upload_status: result.success ? 'completed' : 'failed',
+          records_imported: recordsImported,
+          records_failed: recordsFailed,
+          validation_errors: result.validation.errors.slice(0, 10),
+          error_message: result.errors.join('; ') || null,
+          processing_completed_at: new Date().toISOString(),
+          metadata: {
+            processingTime: result.metadata.processingTime,
+            sheetCount: result.metadata.sheetCount,
+            totalRows: result.metadata.totalRows,
+          },
+        })
+        .eq('id', uploadId);
+    } catch (updateError) {
+      console.log('Could not update upload history:', updateError);
+    }
+
     return NextResponse.json({
       success: result.success,
-      fileId: uploadId,
-      recordsProcessed: result.recordsProcessed,
-      recordsFailed: result.recordsFailed,
+      data: {
+        uploadId,
+        fileType: result.fileType,
+        detection: {
+          type: result.detection.detectedType,
+          confidence: result.detection.confidence,
+          matchedColumns: result.detection.matchedColumns,
+        },
+        validation: {
+          valid: result.validation.valid,
+          summary: result.validation.summary,
+          errors: result.validation.errors.slice(0, 10), // Limit errors returned
+        },
+        import: {
+          batchesCreated: result.transform.stats.batchesCreated,
+          inspectionsCreated: result.transform.stats.inspectionsCreated,
+          defectsCreated: result.transform.stats.defectsCreated,
+          recordsImported,
+          recordsFailed,
+        },
+      },
       errors: result.errors,
+      meta: {
+        timestamp: new Date().toISOString(),
+        processingTime: Date.now() - startTime,
+        fileName: file.name,
+        fileSize: file.size,
+      },
     });
-    
   } catch (error) {
     console.error('Upload error:', error);
+
+    // Update upload history with error
+    try {
+      await supabaseAdmin
+        .from('upload_history')
+        .update({
+          upload_status: 'failed',
+          error_message: error instanceof Error ? error.message : 'Unknown error',
+          processing_completed_at: new Date().toISOString(),
+        })
+        .eq('id', uploadId);
+    } catch {
+      // Ignore update errors
+    }
+
     return NextResponse.json(
-      { error: error instanceof Error ? error.message : 'Internal server error' },
+      {
+        success: false,
+        error: {
+          code: 'UPLOAD_ERROR',
+          message: error instanceof Error ? error.message : 'Failed to process upload',
+        },
+      },
+      { status: 500 }
+    );
+  }
+}
+
+// ============================================================================
+// GET - Get upload history
+// ============================================================================
+
+export async function GET(request: NextRequest) {
+  try {
+    const searchParams = request.nextUrl.searchParams;
+    const limit = parseInt(searchParams.get('limit') || '20');
+    const offset = parseInt(searchParams.get('offset') || '0');
+
+    const { data, error } = await supabaseAdmin
+      .from('upload_history')
+      .select('*')
+      .order('uploaded_at', { ascending: false })
+      .range(offset, offset + limit - 1);
+
+    if (error) {
+      // Return empty array if table doesn't exist or other error
+      return NextResponse.json({
+        success: true,
+        data: {
+          uploads: [],
+          total: 0,
+        },
+        meta: {
+          timestamp: new Date().toISOString(),
+          limit,
+          offset,
+        },
+      });
+    }
+
+    return NextResponse.json({
+      success: true,
+      data: {
+        uploads: data || [],
+        total: data?.length || 0,
+      },
+      meta: {
+        timestamp: new Date().toISOString(),
+        limit,
+        offset,
+      },
+    });
+  } catch (error) {
+    console.error('Get uploads error:', error);
+    return NextResponse.json(
+      {
+        success: false,
+        error: {
+          code: 'FETCH_ERROR',
+          message: 'Failed to fetch upload history',
+        },
+      },
       { status: 500 }
     );
   }

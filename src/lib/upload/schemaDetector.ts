@@ -1,139 +1,217 @@
-import * as XLSX from 'xlsx';
-import { SchemaMapping, SchemaDetectionResult, FIELD_PATTERNS, REQUIRED_FIELDS } from './types';
+/**
+ * Schema Detector
+ * Auto-detect inspection type from Excel column headers
+ */
 
-export class SchemaDetector {
-  detect(buffer: Buffer, sheetIndex: number = 0): SchemaDetectionResult {
-    const workbook = XLSX.read(buffer, { type: 'buffer' });
-    const sheetName = workbook.SheetNames[sheetIndex];
-    const worksheet = workbook.Sheets[sheetName];
-    
-    // Convert to JSON with headers as row array
-    const jsonData = XLSX.utils.sheet_to_json(worksheet, { header: 1 }) as unknown[][];
-    
-    if (jsonData.length === 0) {
-      throw new Error('Excel file is empty');
-    }
-    
-    // Find header row (first row with >50% string cells that look like headers)
-    let headerRowIndex = 0;
-    for (let i = 0; i < Math.min(10, jsonData.length); i++) {
-      const row = jsonData[i];
-      if (!row || row.length === 0) continue;
-      
-      const stringCount = row.filter(cell => typeof cell === 'string' && cell.length > 0).length;
-      const ratio = stringCount / row.length;
-      
-      // If more than 50% are non-empty strings, consider it a header row
-      if (ratio > 0.5) {
-        headerRowIndex = i;
-        break;
-      }
-    }
-    
-    const headers = (jsonData[headerRowIndex] as string[]).map(h => String(h || '').trim());
-    const dataRows = jsonData.slice(headerRowIndex + 1, headerRowIndex + 11); // Sample 10 rows
-    
-    // Map each column
-    const mappings: SchemaMapping[] = headers.map((header, index) => {
-      const normalizedHeader = header.toLowerCase().trim().replace(/[_\-\s]+/g, ' ');
-      let bestMatch = { field: 'unknown', confidence: 0 };
-      
-      for (const [field, patterns] of Object.entries(FIELD_PATTERNS)) {
-        for (const pattern of patterns) {
-          const similarity = this.calculateSimilarity(normalizedHeader, pattern);
-          if (similarity > bestMatch.confidence) {
-            bestMatch = { field, confidence: similarity };
-          }
-        }
-      }
-      
-      // Extract sample values (non-empty)
-      const sampleValues = (dataRows
-        .map(row => row[index])
-        .filter(v => v !== undefined && v !== null && v !== '') as (string | number | Date | undefined)[]);
-      
-      return {
-        columnIndex: index,
-        columnName: header,
-        suggestedField: bestMatch.confidence > 0.5 ? bestMatch.field : 'unknown',
-        confidence: Math.round(bestMatch.confidence * 100),
-        sampleValues: sampleValues.slice(0, 5), // Limit to 5 samples
-      };
-    });
-    
-    // Check if required fields are present
-    const detectedFields = new Set(mappings.map(m => m.suggestedField));
-    const missingRequired = REQUIRED_FIELDS.filter(f => !detectedFields.has(f));
-    
-    if (missingRequired.length > 0) {
-      console.warn('Missing required fields:', missingRequired);
-    }
-    
-    return {
-      mappings,
-      headerRowIndex,
-      totalRows: jsonData.length - headerRowIndex - 1,
-      sheetName,
-    };
-  }
-  
-  private calculateSimilarity(str1: string, str2: string): number {
-    const s1 = str1.toLowerCase().trim();
-    const s2 = str2.toLowerCase().trim();
-    
-    // Exact match
-    if (s1 === s2) return 1;
-    
-    // Contains match
-    if (s1.includes(s2) || s2.includes(s1)) return 0.9;
-    
-    // Word-level contains
-    const words1 = s1.split(/\s+/);
-    const words2 = s2.split(/\s+/);
-    
-    for (const w1 of words1) {
-      for (const w2 of words2) {
-        if (w1 === w2 || w1.includes(w2) || w2.includes(w1)) {
-          return 0.8;
-        }
-      }
-    }
-    
-    // Levenshtein distance for similar words
-    if (this.levenshteinDistance(s1, s2) <= 2) {
-      return 0.7;
-    }
-    
-    return 0;
-  }
-  
-  private levenshteinDistance(str1: string, str2: string): number {
-    const matrix: number[][] = [];
-    
-    for (let i = 0; i <= str2.length; i++) {
-      matrix[i] = [i];
-    }
-    
-    for (let j = 0; j <= str1.length; j++) {
-      matrix[0][j] = j;
-    }
-    
-    for (let i = 1; i <= str2.length; i++) {
-      for (let j = 1; j <= str1.length; j++) {
-        if (str2.charAt(i - 1) === str1.charAt(j - 1)) {
-          matrix[i][j] = matrix[i - 1][j - 1];
-        } else {
-          matrix[i][j] = Math.min(
-            matrix[i - 1][j - 1] + 1,
-            matrix[i][j - 1] + 1,
-            matrix[i - 1][j] + 1
-          );
-        }
-      }
-    }
-    
-    return matrix[str2.length][str1.length];
-  }
+import type { FileType } from '../db/types';
+
+// ============================================================================
+// TYPES
+// ============================================================================
+
+export interface SchemaPattern {
+  type: FileType;
+  requiredColumns: string[];
+  optionalColumns: string[];
+  description: string;
 }
 
-export const schemaDetector = new SchemaDetector();
+export interface DetectionResult {
+  detectedType: FileType;
+  confidence: number; // 0-1
+  matchedColumns: string[];
+  missingRequired: string[];
+  suggestions: string[];
+}
+
+// ============================================================================
+// SCHEMA PATTERNS
+// ============================================================================
+
+/**
+ * Define column patterns for each file type
+ * Column names are normalized (lowercase, underscores)
+ */
+export const SCHEMA_PATTERNS: SchemaPattern[] = [
+  {
+    type: 'visual',
+    requiredColumns: ['batch_number', 'defect_type', 'defect_count'],
+    optionalColumns: ['inspector', 'date', 'severity', 'remarks', 'inspection_date', 'batch_id'],
+    description: 'Visual Inspection Report',
+  },
+  {
+    type: 'assembly',
+    requiredColumns: ['batch_number', 'stage', 'pass_count', 'fail_count'],
+    optionalColumns: ['date', 'inspector', 'line', 'shift', 'assembly_stage', 'passed', 'failed'],
+    description: 'Assembly QC Report',
+  },
+  {
+    type: 'integrity',
+    requiredColumns: ['batch_number', 'test_type', 'result'],
+    optionalColumns: ['date', 'tester', 'equipment', 'value', 'tolerance', 'pass_fail'],
+    description: 'Integrity Test Report',
+  },
+  {
+    type: 'cumulative',
+    requiredColumns: ['batch_number', 'produced_quantity', 'rejected_quantity'],
+    optionalColumns: [
+      'date',
+      'product_code',
+      'product_name',
+      'status',
+      'total_produced',
+      'total_rejected',
+    ],
+    description: 'Cumulative Production Report',
+  },
+  {
+    type: 'shopfloor',
+    requiredColumns: ['supplier', 'material', 'quantity'],
+    optionalColumns: [
+      'accepted',
+      'rejected',
+      'date',
+      'supplier_name',
+      'supplier_code',
+      'material_code',
+      'po_number',
+    ],
+    description: 'Shopfloor/Material Incoming Report',
+  },
+];
+
+// ============================================================================
+// DETECTION FUNCTIONS
+// ============================================================================
+
+/**
+ * Normalize a column header for comparison
+ */
+function normalizeHeader(header: string): string {
+  return header
+    .toLowerCase()
+    .trim()
+    .replace(/[\s\-\.]+/g, '_')
+    .replace(/[^a-z0-9_]/g, '');
+}
+
+/**
+ * Check if a column matches any of the expected columns (fuzzy match)
+ */
+function columnsMatch(actual: string, expected: string): boolean {
+  const normalizedActual = normalizeHeader(actual);
+  const normalizedExpected = normalizeHeader(expected);
+
+  // Exact match
+  if (normalizedActual === normalizedExpected) return true;
+
+  // Contains match (e.g., "batch_number" matches "batch_no" or "batch")
+  if (normalizedActual.includes(normalizedExpected) || normalizedExpected.includes(normalizedActual))
+    return true;
+
+  // Common variations
+  const variations: Record<string, string[]> = {
+    batch_number: ['batch_no', 'batch_id', 'batch', 'lot_number', 'lot_no', 'lot'],
+    defect_type: ['defect', 'defect_name', 'defect_code', 'type'],
+    defect_count: ['count', 'qty', 'quantity', 'defects'],
+    pass_count: ['passed', 'pass', 'ok_count', 'ok'],
+    fail_count: ['failed', 'fail', 'ng_count', 'ng', 'reject'],
+    inspector: ['inspector_name', 'inspector_id', 'inspected_by', 'operator'],
+    date: ['inspection_date', 'production_date', 'created_date', 'created_at'],
+    supplier: ['supplier_name', 'supplier_code', 'vendor', 'vendor_name'],
+    material: ['material_code', 'material_name', 'part', 'part_number', 'component'],
+    quantity: ['qty', 'amount', 'total_qty'],
+    stage: ['inspection_stage', 'assembly_stage', 'process_stage', 'step'],
+  };
+
+  const expectedVariations = variations[normalizedExpected] || [];
+  return expectedVariations.some(
+    (v) => normalizedActual.includes(v) || v.includes(normalizedActual)
+  );
+}
+
+/**
+ * Detect the schema type from column headers
+ * @param headers - Array of column headers from the Excel file
+ * @returns DetectionResult with detected type and confidence
+ */
+export function detectSchema(headers: string[]): DetectionResult {
+  const normalizedHeaders = headers.map(normalizeHeader);
+  let bestMatch: DetectionResult = {
+    detectedType: 'unknown',
+    confidence: 0,
+    matchedColumns: [],
+    missingRequired: [],
+    suggestions: ['Unable to detect file type. Please ensure required columns are present.'],
+  };
+
+  for (const pattern of SCHEMA_PATTERNS) {
+    const matchedRequired: string[] = [];
+    const missingRequired: string[] = [];
+    const matchedOptional: string[] = [];
+
+    // Check required columns
+    for (const required of pattern.requiredColumns) {
+      const matched = normalizedHeaders.some((h) => columnsMatch(h, required));
+      if (matched) {
+        matchedRequired.push(required);
+      } else {
+        missingRequired.push(required);
+      }
+    }
+
+    // Check optional columns
+    for (const optional of pattern.optionalColumns) {
+      if (normalizedHeaders.some((h) => columnsMatch(h, optional))) {
+        matchedOptional.push(optional);
+      }
+    }
+
+    // Calculate confidence score
+    const requiredScore = matchedRequired.length / pattern.requiredColumns.length;
+    const optionalScore =
+      pattern.optionalColumns.length > 0
+        ? matchedOptional.length / pattern.optionalColumns.length
+        : 0;
+    const confidence = requiredScore * 0.8 + optionalScore * 0.2; // Weight required columns more
+
+    if (confidence > bestMatch.confidence) {
+      bestMatch = {
+        detectedType: confidence >= 0.6 ? pattern.type : 'unknown',
+        confidence,
+        matchedColumns: [...matchedRequired, ...matchedOptional],
+        missingRequired,
+        suggestions:
+          missingRequired.length > 0
+            ? [`Missing columns for ${pattern.description}: ${missingRequired.join(', ')}`]
+            : [],
+      };
+    }
+  }
+
+  // Add suggestions for unknown type
+  if (bestMatch.detectedType === 'unknown') {
+    bestMatch.suggestions = [
+      'Could not detect file type. Supported types:',
+      ...SCHEMA_PATTERNS.map(
+        (p) => `- ${p.description}: requires ${p.requiredColumns.join(', ')}`
+      ),
+    ];
+  }
+
+  return bestMatch;
+}
+
+/**
+ * Get schema pattern for a specific file type
+ */
+export function getSchemaPattern(type: FileType): SchemaPattern | undefined {
+  return SCHEMA_PATTERNS.find((p) => p.type === type);
+}
+
+/**
+ * Get all supported schema types
+ */
+export function getSupportedTypes(): { type: FileType; description: string }[] {
+  return SCHEMA_PATTERNS.map((p) => ({ type: p.type, description: p.description }));
+}

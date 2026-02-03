@@ -1,163 +1,336 @@
 'use client';
 
-import { useState } from 'react';
-import TopBar from '@/components/TopBar';
-import styles from './page.module.css';
+import React, { useState } from 'react';
+import { DashboardHeader } from '@/components/layout';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Button } from '@/components/ui/button';
+import { Badge } from '@/components/ui/badge';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from '@/components/ui/table';
+import {
+  FileText,
+  Download,
+  Calendar,
+  Clock,
+  CheckCircle,
+  AlertCircle,
+  Loader2,
+  FileSpreadsheet,
+  BarChart3,
+  PieChart,
+  TrendingUp,
+} from 'lucide-react';
+import { formatDate, formatDateTime } from '@/lib/utils';
 
-interface ReportCard {
-  id: string;
-  title: string;
-  description: string;
-  icon: React.ReactNode;
-  lastGenerated?: string;
-}
-
-const REPORT_CARDS: ReportCard[] = [
+// Report types
+const reportTypes = [
   {
-    id: 'monthly',
-    title: 'Monthly Rejection Summary',
-    description: 'Complete overview of rejection statistics including rates, costs, and trends for the month.',
-    icon: (
-      <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-        <rect x="3" y="4" width="18" height="18" rx="2" ry="2" />
-        <line x1="16" y1="2" x2="16" y2="6" />
-        <line x1="8" y1="2" x2="8" y2="6" />
-        <line x1="3" y1="10" x2="21" y2="10" />
-      </svg>
-    ),
-    lastGenerated: 'Jan 15, 2025',
+    id: 'monthly_summary',
+    name: 'Monthly Summary',
+    description: 'Overall rejection statistics and trends for the month',
+    icon: <BarChart3 className="w-6 h-6" />,
+    format: ['PDF', 'Excel'],
   },
   {
-    id: 'pareto',
-    title: 'Defect Pareto Report',
-    description: 'Detailed Pareto analysis showing top defect types and their contribution to total rejections.',
-    icon: (
-      <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-        <path d="M3 3v18h18" />
-        <path d="M18 17V9" />
-        <path d="M13 17V5" />
-        <path d="M8 17v-3" />
-      </svg>
-    ),
-    lastGenerated: 'Jan 14, 2025',
+    id: 'defect_pareto',
+    name: 'Defect Pareto Report',
+    description: 'Top defect contributors and 80/20 analysis',
+    icon: <PieChart className="w-6 h-6" />,
+    format: ['PDF', 'Excel'],
   },
   {
-    id: 'batch',
-    title: 'Batch Risk Report',
-    description: 'Comprehensive batch risk assessment with risk levels, stages failed, and recommended actions.',
-    icon: (
-      <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-        <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z" />
-        <line x1="12" y1="9" x2="12" y2="13" />
-        <line x1="12" y1="17" x2="12.01" y2="17" />
-      </svg>
-    ),
+    id: 'batch_risk',
+    name: 'Batch Risk Report',
+    description: 'High-risk and watch-level batch details',
+    icon: <AlertCircle className="w-6 h-6" />,
+    format: ['PDF', 'Excel'],
   },
   {
-    id: 'stage',
-    title: 'Stage-wise Report',
-    description: 'Process stage analysis showing rejection rates by production stage with trend analysis.',
-    icon: (
-      <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-        <path d="M12 2v20" />
-        <path d="M2 12h20" />
-        <path d="M12 2l4 4" />
-        <path d="M12 2l-4 4" />
-        <circle cx="12" cy="12" r="3" />
-      </svg>
-    ),
-    lastGenerated: 'Jan 13, 2025',
+    id: 'supplier_performance',
+    name: 'Supplier Performance',
+    description: 'Supplier quality rankings and trends',
+    icon: <TrendingUp className="w-6 h-6" />,
+    format: ['PDF', 'Excel'],
   },
 ];
 
-export default function ReportsPage() {
-  const [generating, setGenerating] = useState<string | null>(null);
+// Mock report history
+const mockReportHistory = [
+  { id: '1', type: 'monthly_summary', name: 'Monthly Summary - January 2026', generatedAt: '2026-02-01T10:30:00Z', status: 'completed', format: 'PDF', size: '2.4 MB' },
+  { id: '2', type: 'defect_pareto', name: 'Defect Pareto - Q4 2025', generatedAt: '2026-01-05T14:15:00Z', status: 'completed', format: 'Excel', size: '1.8 MB' },
+  { id: '3', type: 'batch_risk', name: 'Batch Risk Report - Jan 2026', generatedAt: '2026-01-31T09:00:00Z', status: 'completed', format: 'PDF', size: '3.1 MB' },
+  { id: '4', type: 'supplier_performance', name: 'Supplier Performance - H2 2025', generatedAt: '2026-01-02T16:45:00Z', status: 'completed', format: 'PDF', size: '1.2 MB' },
+];
 
-  const handleExport = (reportId: string, format: 'excel' | 'pdf') => {
-    setGenerating(`${reportId}-${format}`);
-    // Simulate generation
-    setTimeout(() => {
-      setGenerating(null);
-      console.log(`Generated ${reportId} as ${format}`);
-    }, 1500);
+export default function ReportsPage() {
+  const [selectedReportType, setSelectedReportType] = useState('monthly_summary');
+  const [selectedPeriod, setSelectedPeriod] = useState('last_month');
+  const [selectedFormat, setSelectedFormat] = useState('PDF');
+  const [isGenerating, setIsGenerating] = useState(false);
+  const [generationComplete, setGenerationComplete] = useState(false);
+
+  const selectedReport = reportTypes.find((r) => r.id === selectedReportType);
+
+  const handleGenerateReport = async () => {
+    setIsGenerating(true);
+    setGenerationComplete(false);
+
+    // Simulate report generation
+    await new Promise((resolve) => setTimeout(resolve, 3000));
+
+    setIsGenerating(false);
+    setGenerationComplete(true);
+
+    // Reset after showing success
+    setTimeout(() => setGenerationComplete(false), 5000);
+  };
+
+  const handleDownload = (reportId: string) => {
+    // Simulate download
+    console.log('Downloading report:', reportId);
+    alert('Report download would start here. This is a demo.');
   };
 
   return (
-    <div className={styles.container}>
-      <TopBar
+    <>
+      <DashboardHeader
         title="Reports"
-        subtitle="What do I export or audit?"
+        description="Generate and download quality reports"
       />
 
-      <main className={styles.main}>
-        {/* Report Cards Grid */}
-        <section className={styles.grid}>
-          {REPORT_CARDS.map((report) => (
-            <div key={report.id} className={styles.card}>
-              <div className={styles.cardHeader}>
-                <div className={styles.iconWrapper}>{report.icon}</div>
-                <h3 className={styles.cardTitle}>{report.title}</h3>
+      <div className="flex-1 p-8 overflow-auto">
+        {/* Report Generator */}
+        <Card className="mb-8">
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <FileText className="w-6 h-6" />
+              Generate New Report
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            {/* Report Type Selection */}
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
+              {reportTypes.map((report) => (
+                <button
+                  key={report.id}
+                  onClick={() => setSelectedReportType(report.id)}
+                  className={`p-4 rounded-xl border-2 text-left transition-all ${
+                    selectedReportType === report.id
+                      ? 'border-primary bg-primary/5'
+                      : 'border-border hover:border-primary/50'
+                  }`}
+                >
+                  <div className={`mb-3 ${selectedReportType === report.id ? 'text-primary' : 'text-text-secondary'}`}>
+                    {report.icon}
+                  </div>
+                  <p className="font-semibold text-lg text-text-primary">{report.name}</p>
+                  <p className="text-sm text-text-secondary mt-1">{report.description}</p>
+                </button>
+              ))}
+            </div>
+
+            {/* Report Options */}
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
+              <div>
+                <label className="block text-base font-medium text-text-secondary mb-2">
+                  <Calendar className="w-5 h-5 inline mr-2" />
+                  Time Period
+                </label>
+                <Select value={selectedPeriod} onValueChange={setSelectedPeriod}>
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="last_week">Last Week</SelectItem>
+                    <SelectItem value="last_month">Last Month</SelectItem>
+                    <SelectItem value="last_quarter">Last Quarter</SelectItem>
+                    <SelectItem value="last_year">Last Year</SelectItem>
+                    <SelectItem value="ytd">Year to Date</SelectItem>
+                  </SelectContent>
+                </Select>
               </div>
-              
-              <p className={styles.cardDescription}>{report.description}</p>
-              
-              {report.lastGenerated && (
-                <div className={styles.lastGenerated}>
-                  Last generated: {report.lastGenerated}
-                </div>
-              )}
-              
-              <div className={styles.cardActions}>
-                <button
-                  className={styles.exportButton}
-                  onClick={() => handleExport(report.id, 'excel')}
-                  disabled={generating === `${report.id}-excel`}
+
+              <div>
+                <label className="block text-base font-medium text-text-secondary mb-2">
+                  <FileSpreadsheet className="w-5 h-5 inline mr-2" />
+                  Format
+                </label>
+                <Select value={selectedFormat} onValueChange={setSelectedFormat}>
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="PDF">PDF Document</SelectItem>
+                    <SelectItem value="Excel">Excel Spreadsheet</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <div className="flex items-end">
+                <Button
+                  onClick={handleGenerateReport}
+                  disabled={isGenerating}
+                  className="w-full h-12 gap-2"
+                  variant={generationComplete ? 'success' : 'default'}
                 >
-                  {generating === `${report.id}-excel` ? (
+                  {isGenerating ? (
                     <>
-                      <span className={styles.spinner} />
+                      <Loader2 className="w-5 h-5 animate-spin" />
                       Generating...
+                    </>
+                  ) : generationComplete ? (
+                    <>
+                      <CheckCircle className="w-5 h-5" />
+                      Report Ready!
                     </>
                   ) : (
                     <>
-                      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                        <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
-                        <polyline points="14 2 14 8 20 8" />
-                        <line x1="16" y1="13" x2="8" y2="13" />
-                        <line x1="16" y1="17" x2="8" y2="17" />
-                        <polyline points="10 9 9 9 8 9" />
-                      </svg>
-                      Excel
+                      <FileText className="w-5 h-5" />
+                      Generate Report
                     </>
                   )}
-                </button>
-                
-                <button
-                  className={`${styles.exportButton} ${styles.exportButtonSecondary}`}
-                  onClick={() => handleExport(report.id, 'pdf')}
-                  disabled={generating === `${report.id}-pdf`}
-                >
-                  {generating === `${report.id}-pdf` ? (
-                    <>
-                      <span className={styles.spinner} />
-                      Generating...
-                    </>
-                  ) : (
-                    <>
-                      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                        <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
-                        <polyline points="14 2 14 8 20 8" />
-                        <line x1="16" y1="13" x2="8" y2="13" />
-                      </svg>
-                      PDF
-                    </>
-                  )}
-                </button>
+                </Button>
               </div>
             </div>
-          ))}
-        </section>
-      </main>
-    </div>
+
+            {/* Generation Progress/Result */}
+            {isGenerating && (
+              <div className="bg-primary/5 border border-primary/30 rounded-lg p-6">
+                <div className="flex items-center gap-4">
+                  <Loader2 className="w-8 h-8 animate-spin text-primary" />
+                  <div>
+                    <p className="text-lg font-semibold text-text-primary">
+                      Generating {selectedReport?.name}...
+                    </p>
+                    <p className="text-base text-text-secondary">
+                      This may take a few moments. Please wait.
+                    </p>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {generationComplete && (
+              <div className="bg-success/10 border border-success/30 rounded-lg p-6">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-4">
+                    <CheckCircle className="w-8 h-8 text-success" />
+                    <div>
+                      <p className="text-lg font-semibold text-text-primary">
+                        Report Generated Successfully!
+                      </p>
+                      <p className="text-base text-text-secondary">
+                        {selectedReport?.name} ({selectedFormat}) is ready for download.
+                      </p>
+                    </div>
+                  </div>
+                  <Button variant="success" className="gap-2">
+                    <Download className="w-5 h-5" />
+                    Download Now
+                  </Button>
+                </div>
+              </div>
+            )}
+          </CardContent>
+        </Card>
+
+        {/* Report History */}
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <Clock className="w-6 h-6" />
+              Recent Reports
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Report</TableHead>
+                  <TableHead>Type</TableHead>
+                  <TableHead>Generated</TableHead>
+                  <TableHead>Format</TableHead>
+                  <TableHead>Size</TableHead>
+                  <TableHead>Status</TableHead>
+                  <TableHead></TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {mockReportHistory.map((report) => {
+                  const reportType = reportTypes.find((r) => r.id === report.type);
+                  return (
+                    <TableRow key={report.id}>
+                      <TableCell>
+                        <div className="flex items-center gap-3">
+                          <div className="w-10 h-10 bg-primary/10 rounded-lg flex items-center justify-center text-primary">
+                            {reportType?.icon || <FileText className="w-5 h-5" />}
+                          </div>
+                          <span className="font-semibold text-lg">{report.name}</span>
+                        </div>
+                      </TableCell>
+                      <TableCell>
+                        <span className="text-text-secondary">{reportType?.name}</span>
+                      </TableCell>
+                      <TableCell>
+                        <div className="text-text-secondary">
+                          <p>{formatDate(report.generatedAt)}</p>
+                          <p className="text-sm">{formatDateTime(report.generatedAt).split(',')[1]}</p>
+                        </div>
+                      </TableCell>
+                      <TableCell>
+                        <Badge variant={report.format === 'PDF' ? 'destructive' : 'success'}>
+                          {report.format}
+                        </Badge>
+                      </TableCell>
+                      <TableCell>
+                        <span className="text-text-secondary">{report.size}</span>
+                      </TableCell>
+                      <TableCell>
+                        <Badge variant="success" className="gap-1">
+                          <CheckCircle className="w-4 h-4" />
+                          {report.status}
+                        </Badge>
+                      </TableCell>
+                      <TableCell>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => handleDownload(report.id)}
+                          className="gap-2"
+                        >
+                          <Download className="w-5 h-5" />
+                          Download
+                        </Button>
+                      </TableCell>
+                    </TableRow>
+                  );
+                })}
+              </TableBody>
+            </Table>
+
+            {mockReportHistory.length === 0 && (
+              <div className="text-center py-12 text-text-secondary">
+                <FileText className="w-12 h-12 mx-auto mb-4 opacity-50" />
+                <p className="text-lg">No reports generated yet</p>
+                <p className="text-base mt-1">Generate your first report using the form above</p>
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      </div>
+    </>
   );
 }

@@ -1,89 +1,78 @@
-import { NextRequest, NextResponse } from 'next/server';
-import { rejectionRepository } from '@/lib/db/repositories/rejectionRepository';
-import { calculateConfidenceInterval } from '@/lib/analytics/statistics';
+/**
+ * Trends Analytics API Route
+ * GET /api/analytics/trends
+ */
 
+import { NextRequest, NextResponse } from 'next/server';
+import { calculateTrendData, forecastRejectionRate } from '@/lib/analytics/kpiEngine';
+
+export const runtime = 'nodejs';
+export const dynamic = 'force-dynamic';
+
+/**
+ * Get rejection trend data for charts
+ * Query params:
+ *   - period: '7d' | '14d' | '30d' | '90d' (default: 30d)
+ *   - granularity: 'daily' | 'weekly' (default: daily)
+ *   - forecast: 'true' | 'false' (default: false)
+ */
 export async function GET(request: NextRequest) {
   try {
-    const { searchParams } = new URL(request.url);
-    const from = searchParams.get('from');
-    const to = searchParams.get('to');
-    const granularity = (searchParams.get('granularity') || 'day') as 'day' | 'week' | 'month';
-    const lineIds = searchParams.get('lineIds')?.split(',').map(Number).filter(Boolean);
-    
-    if (!from || !to) {
-      return NextResponse.json(
-        { error: 'Missing required parameters: from, to' },
-        { status: 400 }
-      );
+    const searchParams = request.nextUrl.searchParams;
+    const period = searchParams.get('period') || '30d';
+    const granularity = searchParams.get('granularity') as 'daily' | 'weekly' || 'daily';
+    const includeForecast = searchParams.get('forecast') === 'true';
+
+    // Parse period to days
+    const periodDays = parsePeriodToDays(period);
+
+    // Calculate trend data
+    const trendData = await calculateTrendData(periodDays, granularity);
+
+    // Calculate forecast if requested
+    let forecast = null;
+    if (includeForecast) {
+      forecast = await forecastRejectionRate(periodDays, 7);
     }
-    
-    const fromDate = new Date(from);
-    const toDate = new Date(to);
-    
-    // Fetch aggregated stats
-    const stats = await rejectionRepository.getAggregatedStats(
-      granularity,
-      fromDate,
-      toDate
-    );
-    
-    // Calculate rejection rates (assuming production data available)
-    const series = stats.map(stat => ({
-      date: stat.period.toISOString(),
-      rejectionCount: stat.totalRejected,
-      incidentCount: stat.recordCount,
-      totalCost: stat.totalCost,
-      // Calculate a mock rejection rate based on average production
-      // In real implementation, this would use actual production numbers
-      rejectionRate: Math.round((stat.totalRejected / 1000) * 100) / 100,
-    }));
-    
-    // Calculate confidence interval for forecast
-    const values = series.map(s => s.rejectionCount);
-    const [lower, upper] = calculateConfidenceInterval(values, 0.95);
-    
-    // Add forecast for next period
-    const lastValue = values[values.length - 1] || 0;
-    const forecast = series.map((s, i) => ({
-      ...s,
-      forecast: i === series.length - 1 ? lastValue : undefined,
-      confidenceLower: i === series.length - 1 ? Math.round(lower) : undefined,
-      confidenceUpper: i === series.length - 1 ? Math.round(upper) : undefined,
-    }));
-    
-    // Calculate comparison
-    const midPoint = Math.floor(series.length / 2);
-    const currentPeriod = series.slice(midPoint);
-    const previousPeriod = series.slice(0, midPoint);
-    
-    const currentTotal = currentPeriod.reduce((sum, s) => sum + s.rejectionCount, 0);
-    const previousTotal = previousPeriod.reduce((sum, s) => sum + s.rejectionCount, 0);
-    
+
     return NextResponse.json({
-      series: forecast,
-      comparison: {
-        currentPeriod: {
-          total: currentTotal,
-          avgPerDay: currentPeriod.length > 0 ? Math.round(currentTotal / currentPeriod.length) : 0,
-        },
-        previousPeriod: {
-          total: previousTotal,
-          avgPerDay: previousPeriod.length > 0 ? Math.round(previousTotal / previousPeriod.length) : 0,
-        },
-        change: {
-          absolute: currentTotal - previousTotal,
-          percentage: previousTotal > 0 
-            ? Math.round(((currentTotal - previousTotal) / previousTotal) * 100 * 100) / 100
-            : 0,
-        },
+      success: true,
+      data: {
+        ...trendData,
+        forecast: forecast || undefined,
+      },
+      meta: {
+        timestamp: new Date().toISOString(),
+        period,
+        granularity,
       },
     });
-    
   } catch (error) {
-    console.error('Trends API error:', error);
+    console.error('Trends analytics error:', error);
     return NextResponse.json(
-      { error: error instanceof Error ? error.message : 'Failed to fetch trends' },
+      {
+        success: false,
+        error: {
+          code: 'TRENDS_ERROR',
+          message: error instanceof Error ? error.message : 'Failed to fetch trend data',
+        },
+      },
       { status: 500 }
     );
   }
+}
+
+/**
+ * Parse period string to number of days
+ */
+function parsePeriodToDays(period: string): number {
+  const periodMap: Record<string, number> = {
+    '7d': 7,
+    '14d': 14,
+    '30d': 30,
+    '60d': 60,
+    '90d': 90,
+  };
+
+  return periodMap[period] || 30;
 }
