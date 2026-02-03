@@ -26,6 +26,7 @@ import {
   RefreshCw,
   Trash2,
   Eye,
+  Sparkles,
 } from 'lucide-react';
 import { formatDateTime, formatNumber } from '@/lib/utils';
 import type { UploadHistory, FileType } from '@/lib/db/types';
@@ -43,11 +44,30 @@ const fileTypeLabels: Record<FileType, { label: string; color: string }> = {
   unknown: { label: 'Unknown', color: 'bg-text-tertiary' },
 };
 
+interface AIAnalysis {
+  summary: string;
+  fileType: FileType;
+  confidence: number;
+  detectedMetrics: {
+    totalRejectedColumn?: string;
+    defectCountColumn?: string;
+    batchNumberColumn?: string;
+    dateColumn?: string;
+  };
+  hasAnomaly?: boolean;
+}
+
+interface SmartParsing {
+  headerRowIndex: number;
+}
+
 interface UploadResponse {
   success: boolean;
   data?: {
     uploadId: string;
     fileType: FileType;
+    aiAnalysis: AIAnalysis | null;
+    smartParsing: SmartParsing | null;
     import: {
       recordsImported: number;
       recordsFailed: number;
@@ -63,6 +83,9 @@ export default function UploadPage() {
   const [isUploading, setIsUploading] = useState(false);
   const [uploadComplete, setUploadComplete] = useState(false);
   const [uploadError, setUploadError] = useState<string | null>(null);
+  const [aiAnalysis, setAiAnalysis] = useState<AIAnalysis | null>(null);
+  const [smartParsing, setSmartParsing] = useState<SmartParsing | null>(null);
+  const [uploadResult, setUploadResult] = useState<UploadResponse | null>(null);
 
   // Fetch upload history from API
   const { 
@@ -182,18 +205,26 @@ export default function UploadPage() {
         throw new Error(result.errors?.[0] || 'Upload failed');
       }
 
+      // Capture AI analysis and smart parsing results
+      setUploadResult(result);
+      setAiAnalysis(result.data?.aiAnalysis || null);
+      setSmartParsing(result.data?.smartParsing || null);
+
       setIsUploading(false);
       setUploadComplete(true);
 
       // Refresh upload history
       await mutate();
 
-      // Reset after showing success
+      // Reset after showing success (longer delay to show AI results)
       setTimeout(() => {
         setUploadComplete(false);
         setSelectedFile(null);
         setUploadProgress(0);
-      }, 3000);
+        setAiAnalysis(null);
+        setSmartParsing(null);
+        setUploadResult(null);
+      }, 8000);
     } catch (error) {
       setIsUploading(false);
       setUploadComplete(false);
@@ -207,6 +238,9 @@ export default function UploadPage() {
     setUploadError(null);
     setUploadProgress(0);
     setUploadComplete(false);
+    setAiAnalysis(null);
+    setSmartParsing(null);
+    setUploadResult(null);
   };
 
   const handleRefreshHistory = async () => {
@@ -300,9 +334,57 @@ export default function UploadPage() {
                   )}
 
                   {uploadComplete && (
-                    <div className="flex items-center justify-center gap-3 text-success">
-                      <CheckCircle className="w-8 h-8" />
-                      <span className="text-xl font-semibold">Upload Successful!</span>
+                    <div className="space-y-4">
+                      <div className="flex items-center justify-center gap-3 text-success">
+                        <CheckCircle className="w-8 h-8" />
+                        <span className="text-xl font-semibold">Upload Successful!</span>
+                      </div>
+
+                      {/* AI Analysis Results */}
+                      {aiAnalysis && (
+                        <div className="bg-gradient-to-r from-primary/10 to-secondary/10 rounded-lg p-4 border border-primary/20">
+                          <div className="flex items-center gap-2 mb-2">
+                            <Sparkles className="w-5 h-5 text-primary" />
+                            <span className="font-semibold text-text-primary">AI Analysis</span>
+                            {aiAnalysis.hasAnomaly && (
+                              <Badge variant="destructive" className="gap-1">
+                                <AlertTriangle className="w-3 h-3" />
+                                Anomaly Detected
+                              </Badge>
+                            )}
+                          </div>
+                          <p className="text-sm text-text-secondary mb-2">{aiAnalysis.summary}</p>
+                          <div className="flex items-center gap-4 text-xs text-text-tertiary">
+                            <span>Confidence: {Math.round(aiAnalysis.confidence * 100)}%</span>
+                            <span>Type: {fileTypeLabels[aiAnalysis.fileType]?.label || aiAnalysis.fileType}</span>
+                          </div>
+                          {smartParsing && smartParsing.headerRowIndex > 0 && (
+                            <div className="mt-2 text-xs text-text-tertiary">
+                              Smart parsing detected header at row {smartParsing.headerRowIndex + 1} (skipped {smartParsing.headerRowIndex} metadata rows)
+                            </div>
+                          )}
+                        </div>
+                      )}
+
+                      {/* Upload Stats */}
+                      {uploadResult?.data?.import && (
+                        <div className="flex items-center justify-center gap-6 text-sm">
+                          <div className="text-center">
+                            <span className="block text-2xl font-bold text-success">
+                              {uploadResult.data.import.recordsImported}
+                            </span>
+                            <span className="text-text-secondary">Records Imported</span>
+                          </div>
+                          {uploadResult.data.import.recordsFailed > 0 && (
+                            <div className="text-center">
+                              <span className="block text-2xl font-bold text-danger">
+                                {uploadResult.data.import.recordsFailed}
+                              </span>
+                              <span className="text-text-secondary">Failed</span>
+                            </div>
+                          )}
+                        </div>
+                      )}
                     </div>
                   )}
 

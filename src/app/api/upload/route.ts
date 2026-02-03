@@ -1,6 +1,6 @@
 /**
  * Upload API Route
- * POST /api/upload - Handle Excel file uploads
+ * POST /api/upload - Handle Excel file uploads with AI analysis
  * GET /api/upload - Get upload history
  */
 
@@ -8,6 +8,8 @@ import { NextRequest, NextResponse } from 'next/server';
 import { v4 as uuidv4 } from 'uuid';
 import { supabaseAdmin, uploadFile } from '@/lib/db/client';
 import { processExcelFile } from '@/lib/upload';
+import { analyzeUploadData } from '@/lib/ai/gemini';
+import { parseExcelBuffer, previewExcelFile } from '@/lib/upload/excelParser';
 import type { FileType } from '@/lib/db/types';
 
 export const runtime = 'nodejs';
@@ -17,7 +19,7 @@ export const dynamic = 'force-dynamic';
 const MAX_FILE_SIZE = 10 * 1024 * 1024;
 
 // ============================================================================
-// POST - Upload and process Excel file
+// POST - Upload and process Excel file with AI analysis
 // ============================================================================
 
 export async function POST(request: NextRequest) {
@@ -75,6 +77,26 @@ export async function POST(request: NextRequest) {
     const arrayBuffer = await file.arrayBuffer();
     const buffer = Buffer.from(arrayBuffer);
 
+    // ===== AI PREVIEW ANALYSIS =====
+    // Get preview for AI analysis before full processing
+    const previewResult = await previewExcelFile(buffer, 10);
+    let aiAnalysis = null;
+    let detectedFileType: FileType = 'unknown';
+
+    if (previewResult && previewResult.preview.length > 0) {
+      try {
+        aiAnalysis = await analyzeUploadData(
+          previewResult.preview,
+          previewResult.headers,
+          file.name
+        );
+        detectedFileType = aiAnalysis.fileType as FileType;
+      } catch (aiError) {
+        console.warn('AI analysis failed:', aiError);
+        // Continue without AI analysis
+      }
+    }
+
     // Create upload history record
     const storagePath = `uploads/${uploadId}/${file.name}`;
 
@@ -91,6 +113,16 @@ export async function POST(request: NextRequest) {
         records_failed: 0,
         uploaded_at: new Date().toISOString(),
         processing_started_at: new Date().toISOString(),
+        metadata: {
+          aiAnalysis: aiAnalysis
+            ? {
+                summary: aiAnalysis.summary,
+                fileType: aiAnalysis.fileType,
+                confidence: aiAnalysis.confidence,
+                detectedMetrics: aiAnalysis.detectedMetrics,
+              }
+            : null,
+        },
       });
     } catch (dbError) {
       console.log('Could not create upload history record:', dbError);
@@ -106,8 +138,10 @@ export async function POST(request: NextRequest) {
     }
 
     // Process the Excel file
+    // Use AI-detected type if available, otherwise use forced type or auto-detect
+    const effectiveFileType = forceType || detectedFileType || undefined;
     const result = await processExcelFile(buffer, {
-      forceFileType: forceType || undefined,
+      forceFileType: effectiveFileType,
       skipValidation,
     });
 
@@ -182,7 +216,10 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    // Update upload history
+    // Check for anomalies based on AI analysis
+    const hasAnomaly = aiAnalysis && detectAnomalyFromAI(aiAnalysis);
+
+    // Update upload history with final results
     try {
       await supabaseAdmin
         .from('upload_history')
@@ -198,6 +235,20 @@ export async function POST(request: NextRequest) {
             processingTime: result.metadata.processingTime,
             sheetCount: result.metadata.sheetCount,
             totalRows: result.metadata.totalRows,
+            aiAnalysis: aiAnalysis
+              ? {
+                  summary: aiAnalysis.summary,
+                  fileType: aiAnalysis.fileType,
+                  confidence: aiAnalysis.confidence,
+                  detectedMetrics: aiAnalysis.detectedMetrics,
+                  hasAnomaly,
+                }
+              : null,
+            headerDetection: previewResult
+              ? {
+                  headerRowIndex: previewResult.headerRowIndex,
+                }
+              : null,
           },
         })
         .eq('id', uploadId);
@@ -210,15 +261,30 @@ export async function POST(request: NextRequest) {
       data: {
         uploadId,
         fileType: result.fileType,
+        aiAnalysis: aiAnalysis
+          ? {
+              summary: aiAnalysis.summary,
+              fileType: aiAnalysis.fileType,
+              confidence: aiAnalysis.confidence,
+              detectedMetrics: aiAnalysis.detectedMetrics,
+              hasAnomaly,
+            }
+          : null,
         detection: {
           type: result.detection.detectedType,
           confidence: result.detection.confidence,
           matchedColumns: result.detection.matchedColumns,
+          source: result.detection.detectionSource,
         },
+        smartParsing: previewResult
+          ? {
+              headerRowIndex: previewResult.headerRowIndex,
+            }
+          : null,
         validation: {
           valid: result.validation.valid,
           summary: result.validation.summary,
-          errors: result.validation.errors.slice(0, 10), // Limit errors returned
+          errors: result.validation.errors.slice(0, 10),
         },
         import: {
           batchesCreated: result.transform.stats.batchesCreated,
@@ -264,6 +330,36 @@ export async function POST(request: NextRequest) {
       { status: 500 }
     );
   }
+}
+
+/**
+ * Detect anomalies from AI analysis
+ */
+function detectAnomalyFromAI(aiAnalysis: {
+  fileType: string;
+  summary: string;
+  detectedMetrics: Record<string, string | undefined>;
+  confidence: number;
+}): boolean {
+  // Check for high rejection indicators in summary
+  const summaryLower = aiAnalysis.summary.toLowerCase();
+  const highRejectionIndicators = [
+    'high rejection',
+    'high fail',
+    'high defect',
+    'severe',
+    'critical',
+    'urgent',
+    'alert',
+  ];
+
+  for (const indicator of highRejectionIndicators) {
+    if (summaryLower.includes(indicator)) {
+      return true;
+    }
+  }
+
+  return false;
 }
 
 // ============================================================================
