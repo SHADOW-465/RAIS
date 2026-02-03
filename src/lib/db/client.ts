@@ -192,7 +192,7 @@ export async function getSignedUrl(
  * Execute multiple operations in a transaction-like manner
  * Note: Supabase doesn't have native transactions, so this is a best-effort approach
  */
-export async function executeInTransaction<T>(
+export async function executeInTransaction(
   operations: (() => Promise<void>)[]
 ): Promise<void> {
   const results: unknown[] = [];

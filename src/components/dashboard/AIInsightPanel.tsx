@@ -5,7 +5,7 @@
 
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import type { AIInsight, Sentiment } from '@/lib/db/types';
 
 export interface AIInsightPanelProps {
@@ -23,17 +23,7 @@ export function AIInsightPanel({
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  useEffect(() => {
-    loadInsight();
-
-    // Setup auto-refresh if specified
-    if (refreshInterval) {
-      const interval = setInterval(loadInsight, refreshInterval);
-      return () => clearInterval(interval);
-    }
-  }, [refreshInterval]);
-
-  const loadInsight = async () => {
+  const loadInsight = useCallback(async () => {
     try {
       setLoading(true);
       setError(null);
@@ -44,7 +34,17 @@ export function AIInsightPanel({
     } finally {
       setLoading(false);
     }
-  };
+  }, [fetchInsight]);
+
+  useEffect(() => {
+    loadInsight();
+
+    // Setup auto-refresh if specified
+    if (refreshInterval) {
+      const interval = setInterval(loadInsight, refreshInterval);
+      return () => clearInterval(interval);
+    }
+  }, [refreshInterval, loadInsight]);
 
   const sentimentConfig: Record<Sentiment, { color: string; icon: string; label: string }> = {
     positive: {

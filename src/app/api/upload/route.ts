@@ -7,7 +7,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { v4 as uuidv4 } from 'uuid';
 import { supabaseAdmin, uploadFile } from '@/lib/db/client';
-import { processExcelFile, detectFileSchema } from '@/lib/upload';
+import { processExcelFile } from '@/lib/upload';
 import type { FileType } from '@/lib/db/types';
 
 export const runtime = 'nodejs';

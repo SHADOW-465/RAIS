@@ -14,8 +14,13 @@ export function DashboardHeader({ title, description, actions }: DashboardHeader
   return (
     <header className="bg-white border-b-2 border-gray-200 px-8 py-4">
       <div className="flex items-center justify-between">
-        {/* Left: Logo + Search */}
+        {/* Left: Title + Search */}
         <div className="flex items-center gap-6">
+          {/* Page Title */}
+          <div>
+            <h1 className="text-xl font-bold text-gray-900">{title}</h1>
+            {description && <p className="text-sm text-gray-500">{description}</p>}
+          </div>
           {/* Search Bar */}
           <div className="relative w-80">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />

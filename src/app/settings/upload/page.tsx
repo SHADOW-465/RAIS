@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useState, useCallback } from 'react';
+import useSWR from 'swr';
 import { DashboardHeader } from '@/components/layout';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -27,16 +28,12 @@ import {
   Eye,
 } from 'lucide-react';
 import { formatDateTime, formatNumber } from '@/lib/utils';
+import type { UploadHistory, FileType } from '@/lib/db/types';
 
-// Mock upload history
-const mockUploadHistory = [
-  { id: '1', filename: 'visual_inspection_feb.xlsx', originalFilename: 'visual_inspection_feb.xlsx', fileType: 'visual', fileSize: 2457600, uploadStatus: 'completed', recordsImported: 1250, recordsFailed: 12, uploadedAt: '2026-02-03T10:30:00Z' },
-  { id: '2', filename: 'assembly_report.xlsx', originalFilename: 'assembly_report.xlsx', fileType: 'assembly', fileSize: 1843200, uploadStatus: 'completed', recordsImported: 890, recordsFailed: 0, uploadedAt: '2026-02-02T14:15:00Z' },
-  { id: '3', filename: 'integrity_test_jan.xlsx', originalFilename: 'integrity_test_jan.xlsx', fileType: 'integrity', fileSize: 3145728, uploadStatus: 'failed', recordsImported: 0, recordsFailed: 0, errorMessage: 'Invalid column headers', uploadedAt: '2026-02-01T09:00:00Z' },
-  { id: '4', filename: 'cumulative_q4.xlsx', originalFilename: 'cumulative_q4.xlsx', fileType: 'cumulative', fileSize: 5242880, uploadStatus: 'completed', recordsImported: 3420, recordsFailed: 45, uploadedAt: '2026-01-31T16:45:00Z' },
-];
+// Fetcher for SWR
+const fetcher = (url: string) => fetch(url).then((res) => res.json());
 
-const fileTypeLabels: Record<string, { label: string; color: string }> = {
+const fileTypeLabels: Record<FileType, { label: string; color: string }> = {
   visual: { label: 'Visual Inspection', color: 'bg-primary' },
   assembly: { label: 'Assembly', color: 'bg-success' },
   integrity: { label: 'Integrity Test', color: 'bg-warning' },
@@ -45,6 +42,19 @@ const fileTypeLabels: Record<string, { label: string; color: string }> = {
   unknown: { label: 'Unknown', color: 'bg-text-tertiary' },
 };
 
+interface UploadResponse {
+  success: boolean;
+  data?: {
+    uploadId: string;
+    fileType: FileType;
+    import: {
+      recordsImported: number;
+      recordsFailed: number;
+    };
+  };
+  errors?: string[];
+}
+
 export default function UploadPage() {
   const [isDragActive, setIsDragActive] = useState(false);
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
@@ -52,6 +62,31 @@ export default function UploadPage() {
   const [isUploading, setIsUploading] = useState(false);
   const [uploadComplete, setUploadComplete] = useState(false);
   const [uploadError, setUploadError] = useState<string | null>(null);
+
+  // Fetch upload history from API
+  const { 
+    data: historyData, 
+    isLoading: isHistoryLoading, 
+    error: historyError,
+    mutate 
+  } = useSWR<{ success: boolean; data: { uploads: UploadHistory[] } }>(
+    '/api/upload',
+    fetcher,
+    {
+      refreshInterval: 30000, // Refresh every 30 seconds
+    }
+  );
+
+  const uploadHistory = historyData?.data?.uploads || [];
+
+  // Define isValidFile BEFORE any callbacks that use it
+  const isValidFile = useCallback((file: File) => {
+    const validTypes = [
+      'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      'application/vnd.ms-excel',
+    ];
+    return validTypes.includes(file.type) || file.name.endsWith('.xlsx') || file.name.endsWith('.xls');
+  }, []);
 
   const handleDragEnter = useCallback((e: React.DragEvent) => {
     e.preventDefault();
@@ -85,7 +120,7 @@ export default function UploadPage() {
         setUploadError('Please upload an Excel file (.xlsx or .xls)');
       }
     }
-  }, []);
+  }, [isValidFile]);
 
   const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files;
@@ -98,14 +133,6 @@ export default function UploadPage() {
         setUploadError('Please upload an Excel file (.xlsx or .xls)');
       }
     }
-  };
-
-  const isValidFile = (file: File) => {
-    const validTypes = [
-      'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-      'application/vnd.ms-excel',
-    ];
-    return validTypes.includes(file.type) || file.name.endsWith('.xlsx') || file.name.endsWith('.xls');
   };
 
   const formatFileSize = (bytes: number) => {
@@ -123,24 +150,55 @@ export default function UploadPage() {
     setUploadProgress(0);
     setUploadError(null);
 
-    // Simulate upload progress
-    for (let i = 0; i <= 100; i += 10) {
-      await new Promise((resolve) => setTimeout(resolve, 200));
-      setUploadProgress(i);
-    }
+    try {
+      // Create FormData
+      const formData = new FormData();
+      formData.append('file', selectedFile);
 
-    // Simulate processing
-    await new Promise((resolve) => setTimeout(resolve, 1000));
+      // Upload with progress simulation (since fetch doesn't give true progress)
+      const progressInterval = setInterval(() => {
+        setUploadProgress((prev) => {
+          if (prev >= 90) {
+            clearInterval(progressInterval);
+            return 90;
+          }
+          return prev + 10;
+        });
+      }, 300);
 
-    setIsUploading(false);
-    setUploadComplete(true);
+      // Perform actual upload
+      const response = await fetch('/api/upload', {
+        method: 'POST',
+        body: formData,
+      });
 
-    // Reset after showing success
-    setTimeout(() => {
+      clearInterval(progressInterval);
+      setUploadProgress(100);
+
+      const result: UploadResponse = await response.json();
+
+      if (!response.ok || !result.success) {
+        throw new Error(result.errors?.[0] || 'Upload failed');
+      }
+
+      setIsUploading(false);
+      setUploadComplete(true);
+
+      // Refresh upload history
+      await mutate();
+
+      // Reset after showing success
+      setTimeout(() => {
+        setUploadComplete(false);
+        setSelectedFile(null);
+        setUploadProgress(0);
+      }, 3000);
+    } catch (error) {
+      setIsUploading(false);
       setUploadComplete(false);
-      setSelectedFile(null);
+      setUploadError(error instanceof Error ? error.message : 'Upload failed');
       setUploadProgress(0);
-    }, 3000);
+    }
   };
 
   const handleRemoveFile = () => {
@@ -148,6 +206,10 @@ export default function UploadPage() {
     setUploadError(null);
     setUploadProgress(0);
     setUploadComplete(false);
+  };
+
+  const handleRefreshHistory = async () => {
+    await mutate();
   };
 
   return (
@@ -197,7 +259,7 @@ export default function UploadPage() {
                     className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
                   />
                   <p className="text-base text-text-tertiary">
-                    Supported formats: .xlsx, .xls (Max 50MB)
+                    Supported formats: .xlsx, .xls (Max 10MB)
                   </p>
                 </>
               ) : (
@@ -280,98 +342,132 @@ export default function UploadPage() {
 
         {/* Upload History */}
         <Card>
-          <CardHeader>
+          <CardHeader className="flex-row items-center justify-between">
             <CardTitle className="flex items-center gap-2">
               <Clock className="w-6 h-6" />
               Upload History
             </CardTitle>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={handleRefreshHistory}
+              disabled={isHistoryLoading}
+              className="gap-2"
+            >
+              <RefreshCw className={`w-4 h-4 ${isHistoryLoading ? 'animate-spin' : ''}`} />
+              Refresh
+            </Button>
           </CardHeader>
           <CardContent>
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>File</TableHead>
-                  <TableHead>Type</TableHead>
-                  <TableHead>Size</TableHead>
-                  <TableHead>Uploaded</TableHead>
-                  <TableHead className="text-right">Records</TableHead>
-                  <TableHead>Status</TableHead>
-                  <TableHead></TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {mockUploadHistory.map((upload) => {
-                  const fileType = fileTypeLabels[upload.fileType] || fileTypeLabels.unknown;
-                  return (
-                    <TableRow key={upload.id}>
-                      <TableCell>
-                        <div className="flex items-center gap-3">
-                          <FileSpreadsheet className="w-8 h-8 text-success" />
-                          <span className="font-medium">{upload.filename}</span>
-                        </div>
-                      </TableCell>
-                      <TableCell>
-                        <Badge className={`${fileType.color} text-white`}>
-                          {fileType.label}
-                        </Badge>
-                      </TableCell>
-                      <TableCell className="text-text-secondary">
-                        {formatFileSize(upload.fileSize)}
-                      </TableCell>
-                      <TableCell className="text-text-secondary">
-                        {formatDateTime(upload.uploadedAt)}
-                      </TableCell>
-                      <TableCell className="text-right">
-                        {upload.uploadStatus === 'completed' ? (
-                          <div>
-                            <span className="font-medium text-success">
-                              {formatNumber(upload.recordsImported)}
-                            </span>
-                            {upload.recordsFailed > 0 && (
-                              <span className="text-danger ml-2">
-                                ({upload.recordsFailed} failed)
+            {historyError && (
+              <div className="mb-4 p-4 bg-danger/10 border border-danger/30 rounded-lg flex items-center gap-3">
+                <AlertTriangle className="w-6 h-6 text-danger" />
+                <span className="text-base text-danger">Failed to load upload history</span>
+              </div>
+            )}
+            
+            {isHistoryLoading ? (
+              <div className="py-8 flex items-center justify-center">
+                <Loader2 className="w-8 h-8 animate-spin text-primary" />
+              </div>
+            ) : uploadHistory.length === 0 ? (
+              <div className="py-8 text-center text-text-secondary">
+                No upload history available
+              </div>
+            ) : (
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>File</TableHead>
+                    <TableHead>Type</TableHead>
+                    <TableHead>Size</TableHead>
+                    <TableHead>Uploaded</TableHead>
+                    <TableHead className="text-right">Records</TableHead>
+                    <TableHead>Status</TableHead>
+                    <TableHead></TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {uploadHistory.map((upload) => {
+                    const fileType = upload.file_type 
+                      ? fileTypeLabels[upload.file_type] 
+                      : fileTypeLabels.unknown;
+                    return (
+                      <TableRow key={upload.id}>
+                        <TableCell>
+                          <div className="flex items-center gap-3">
+                            <FileSpreadsheet className="w-8 h-8 text-success" />
+                            <span className="font-medium">{upload.original_filename}</span>
+                          </div>
+                        </TableCell>
+                        <TableCell>
+                          <Badge className={`${fileType.color} text-white`}>
+                            {fileType.label}
+                          </Badge>
+                        </TableCell>
+                        <TableCell className="text-text-secondary">
+                          {upload.file_size ? formatFileSize(upload.file_size) : '-'}
+                        </TableCell>
+                        <TableCell className="text-text-secondary">
+                          {formatDateTime(upload.uploaded_at)}
+                        </TableCell>
+                        <TableCell className="text-right">
+                          {upload.upload_status === 'completed' ? (
+                            <div>
+                              <span className="font-medium text-success">
+                                {formatNumber(upload.records_imported)}
                               </span>
+                              {upload.records_failed > 0 && (
+                                <span className="text-danger ml-2">
+                                  ({upload.records_failed} failed)
+                                </span>
+                              )}
+                            </div>
+                          ) : (
+                            <span className="text-text-tertiary">-</span>
+                          )}
+                        </TableCell>
+                        <TableCell>
+                          {upload.upload_status === 'completed' ? (
+                            <Badge variant="success" className="gap-1">
+                              <CheckCircle className="w-4 h-4" />
+                              Completed
+                            </Badge>
+                          ) : upload.upload_status === 'processing' ? (
+                            <Badge variant="warning" className="gap-1">
+                              <Loader2 className="w-4 h-4 animate-spin" />
+                              Processing
+                            </Badge>
+                          ) : upload.upload_status === 'pending' ? (
+                            <Badge variant="outline" className="gap-1">
+                              <Clock className="w-4 h-4" />
+                              Pending
+                            </Badge>
+                          ) : (
+                            <Badge variant="destructive" className="gap-1">
+                              <XCircle className="w-4 h-4" />
+                              Failed
+                            </Badge>
+                          )}
+                        </TableCell>
+                        <TableCell>
+                          <div className="flex items-center gap-2">
+                            <Button variant="ghost" size="sm">
+                              <Eye className="w-4 h-4" />
+                            </Button>
+                            {upload.upload_status === 'failed' && (
+                              <Button variant="ghost" size="sm">
+                                <RefreshCw className="w-4 h-4" />
+                              </Button>
                             )}
                           </div>
-                        ) : (
-                          <span className="text-text-tertiary">-</span>
-                        )}
-                      </TableCell>
-                      <TableCell>
-                        {upload.uploadStatus === 'completed' ? (
-                          <Badge variant="success" className="gap-1">
-                            <CheckCircle className="w-4 h-4" />
-                            Completed
-                          </Badge>
-                        ) : upload.uploadStatus === 'processing' ? (
-                          <Badge variant="warning" className="gap-1">
-                            <Loader2 className="w-4 h-4 animate-spin" />
-                            Processing
-                          </Badge>
-                        ) : (
-                          <Badge variant="destructive" className="gap-1">
-                            <XCircle className="w-4 h-4" />
-                            Failed
-                          </Badge>
-                        )}
-                      </TableCell>
-                      <TableCell>
-                        <div className="flex items-center gap-2">
-                          <Button variant="ghost" size="sm">
-                            <Eye className="w-4 h-4" />
-                          </Button>
-                          {upload.uploadStatus === 'failed' && (
-                            <Button variant="ghost" size="sm">
-                              <RefreshCw className="w-4 h-4" />
-                            </Button>
-                          )}
-                        </div>
-                      </TableCell>
-                    </TableRow>
-                  );
-                })}
-              </TableBody>
-            </Table>
+                        </TableCell>
+                      </TableRow>
+                    );
+                  })}
+                </TableBody>
+              </Table>
+            )}
           </CardContent>
         </Card>
 

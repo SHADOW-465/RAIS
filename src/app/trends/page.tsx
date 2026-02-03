@@ -5,7 +5,6 @@ import useSWR from 'swr';
 import { DashboardHeader } from '@/components/layout';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { Badge } from '@/components/ui/badge';
 import {
   Select,
   SelectContent,
@@ -15,7 +14,6 @@ import {
 } from '@/components/ui/select';
 import {
   RefreshCw,
-  Calendar,
   TrendingUp,
   TrendingDown,
   AlertTriangle,
@@ -31,7 +29,6 @@ import {
   BarChart,
   Bar,
   Legend,
-  Line,
 } from 'recharts';
 import { formatDate, formatPercentage } from '@/lib/utils';
 

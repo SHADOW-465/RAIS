@@ -97,7 +97,7 @@ export default function StageAnalysisPage() {
                         padding: '16px',
                         boxShadow: '0 4px 12px rgba(0,0,0,0.1)',
                       }}
-                      formatter={(value, name) => [
+                      formatter={(value) => [
                         viewMode === 'percentage' ? `${value}%` : Number(value).toLocaleString(),
                         viewMode === 'percentage' ? 'Rejection Rate' : 'Defect Count'
                       ]}

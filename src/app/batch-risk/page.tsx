@@ -26,13 +26,10 @@ import {
   AlertTriangle,
   Eye,
   RefreshCw,
-  Search,
   Package,
   CheckCircle,
-  XCircle,
   ShieldAlert,
 } from 'lucide-react';
-import { formatPercentage } from '@/lib/utils';
 
 const fetcher = (url: string) => fetch(url).then((res) => res.json());
 

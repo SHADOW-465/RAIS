@@ -4,10 +4,10 @@
  */
 
 import { parseExcelBuffer, type ParseResult, type ParsedSheet } from './excelParser';
-import { detectSchema, getSupportedTypes, type DetectionResult } from './schemaDetector';
+import { detectSchema, type DetectionResult } from './schemaDetector';
 import { validateData, type ValidationResult } from './validator';
 import { transformData, type TransformResult } from './transformer';
-import type { FileType, Batch, InspectionRecord, Defect } from '../db/types';
+import type { FileType } from '../db/types';
 
 // ============================================================================
 // TYPES

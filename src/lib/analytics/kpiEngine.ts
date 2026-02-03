@@ -76,8 +76,8 @@ export interface ParetoData {
 // Cost per rejected unit (in INR) - configurable
 const COST_PER_REJECTED_UNIT = 365;
 
-// Risk thresholds
-const RISK_THRESHOLDS = {
+// Risk thresholds (used for UI styling and alerts)
+export const RISK_THRESHOLDS = {
   high: 15, // >= 15% rejection rate
   watch: 8,  // >= 8% rejection rate
 };
