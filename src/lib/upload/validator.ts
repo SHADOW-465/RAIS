@@ -194,6 +194,22 @@ function validateRow(
 ): ValidationError[] {
   const errors: ValidationError[] = [];
 
+  // --- CRITICAL FIX: CUSTOM IDENTITY CHECK ---
+  // Must have Batch Number OR Date - if neither, warn and let AI generate ID
+  const batchVal = getColumnValue(row, 'batch_number') || getColumnValue(row, 'batch') || getColumnValue(row, 'lot');
+  const dateVal = getColumnValue(row, 'date') || getColumnValue(row, 'production_date');
+
+  if (!batchVal && !dateVal) {
+    // CHANGED FROM 'error' TO 'warning' - allows AI to generate BATCH-YYYY-MM-DD IDs
+    errors.push({
+      row: rowIndex,
+      column: 'batch_number',
+      message: 'Row is missing a clear Batch Number or Date. AI will attempt to generate an ID.',
+      severity: 'warning',
+    });
+  }
+  // --- END CRITICAL FIX ---
+
   for (const rule of rules) {
     const value = getColumnValue(row, rule.column);
 

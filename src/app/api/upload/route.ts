@@ -117,29 +117,48 @@ export async function POST(request: NextRequest) {
       // Continue without AI analysis
     }
 
-    // ===== STEP 3: VALIDATION (NON-BLOCKING) =====
-    // Run validation to identify issues, but proceed regardless for AI recovery
+    // ===== STEP 3: VALIDATION (NON-BLOCKING - CRITICAL FIX) =====
+    // Validation runs to identify issues, but NEVER blocks the upload process.
+    // AI transformation will handle all recoverable issues (missing IDs, type mismatches, etc.)
     let validationWarnings: string[] = [];
+    let validationErrorCount = 0;
+    
     try {
       const { validateData } = await import('@/lib/upload/validator');
       const validationResult = await validateData(rows, detectedFileType);
       
-      if (validationResult.warnings.length > 0) {
-        validationWarnings = validationResult.warnings.map(w => 
-          `Row ${w.row}: ${w.column} - ${w.message}`
-        );
-        console.warn(`[Upload] Validation warnings found (${validationResult.warnings.length}), proceeding to AI transformation...`);
+      // Count actual errors vs warnings
+      validationErrorCount = validationResult.errors.filter(e => e.severity === 'error').length;
+      const warningCount = validationResult.warnings.length + 
+        validationResult.errors.filter(e => e.severity === 'warning').length;
+      
+      if (warningCount > 0) {
+        validationWarnings = [
+          ...validationResult.warnings.map(w => `Row ${w.row}: ${w.column} - ${w.message}`),
+          ...validationResult.errors.filter(e => e.severity === 'warning')
+            .map(e => `Row ${e.row}: ${e.column} - ${e.message}`)
+        ];
+        console.warn(`[Upload] Validation found ${warningCount} warnings. Proceeding to AI transformation...`);
       }
       
-      // Log recoverable errors (now demoted to warnings in validator.ts)
-      const recoverableErrors = validationResult.errors.filter(e => e.severity === 'warning');
-      if (recoverableErrors.length > 0) {
-        console.warn(`[Upload] ${recoverableErrors.length} recoverable issues will be handled by AI`);
+      // --- CRITICAL FIX: DO NOT BLOCK ON VALIDATION ---
+      // Even if there are "errors", we proceed to let AI fix them.
+      // Only hard failures (parse errors, etc.) should block.
+      if (validationErrorCount > 0) {
+        console.warn(`[Upload] Validation found ${validationErrorCount} errors, but proceeding anyway for AI recovery.`);
       }
+      
+      // We explicitly DO NOT return an error response here.
+      // The code ALWAYS flows through to Step 4 (transformData).
+      // ----------------------------------------------------
+      
     } catch (validationError) {
-      // Validation failure shouldn't block - proceed to AI transformation
-      console.warn('[Upload] Validation step failed, continuing with AI transformation:', validationError);
+      // Validation crash shouldn't block - log and proceed to AI transformation
+      console.warn('[Upload] Validation step encountered an error, continuing with AI transformation:', validationError);
+      // DO NOT return - continue execution
     }
+    
+    console.log('[Upload] Validation step complete. Proceeding to transformation regardless of validation state.');
 
     // ===== STEP 4: UNIVERSAL AI DATA TRANSFORMATION =====
     console.log('[Upload] Starting Universal AI Data Transformation...');
