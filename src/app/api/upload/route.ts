@@ -163,6 +163,7 @@ export async function POST(request: NextRequest) {
     // ===== STEP 4: UNIVERSAL AI DATA TRANSFORMATION =====
     console.log('[Upload] Starting Universal AI Data Transformation...');
     
+    // Pass raw parsed data to transformer, which will now use Gemini for mapping
     const transformResult = await transformData(
       rows,
       headers,
