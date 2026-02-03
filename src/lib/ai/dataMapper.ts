@@ -606,8 +606,8 @@ function createBatchRecord(transformed: Record<string, unknown>, batchNumber: st
     product_code: transformed.product_code || null,
     product_name: transformed.product_name || null,
     planned_quantity: transformed.planned_quantity || 0,
-    produced_quantity: transformed.produced_quantity || 0,
-    rejected_quantity: transformed.rejected_quantity || 0,
+    produced_quantity: transformed.produced_quantity || 0, // Use row value (don't zero out)
+    rejected_quantity: 0, // Initialize to 0 for aggregation
     status: 'in_progress',
     risk_level: 'normal',
     notes: null,
