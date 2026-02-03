@@ -74,6 +74,7 @@ export async function processExcelFile(
         matchedColumns: [],
         missingRequired: [],
         suggestions: parseResult.errors,
+        detectionSource: 'unknown',
       },
       validation: {
         valid: false,
@@ -103,7 +104,7 @@ export async function processExcelFile(
   // Use first sheet by default
   const sheet = parseResult.sheets[0];
 
-  // Step 2: Detect schema
+  // Step 2: Detect schema (pass filename if available from metadata)
   const detection = options.forceFileType
     ? {
         detectedType: options.forceFileType,
@@ -111,8 +112,9 @@ export async function processExcelFile(
         matchedColumns: sheet.headers,
         missingRequired: [],
         suggestions: [],
+        detectionSource: 'filename' as const,
       }
-    : detectSchema(sheet.headers);
+    : detectSchema(sheet.headers, parseResult.metadata.fileName);
 
   if (detection.detectedType === 'unknown') {
     errors.push(...detection.suggestions);
@@ -180,6 +182,7 @@ export async function detectFileSchema(
         matchedColumns: [],
         missingRequired: [],
         suggestions: parseResult.errors,
+        detectionSource: 'unknown',
       },
       preview: [],
     };

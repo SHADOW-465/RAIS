@@ -39,6 +39,7 @@ const fileTypeLabels: Record<FileType, { label: string; color: string }> = {
   integrity: { label: 'Integrity Test', color: 'bg-warning' },
   cumulative: { label: 'Cumulative', color: 'bg-info' },
   shopfloor: { label: 'Shop Floor', color: 'bg-secondary' },
+  rejection: { label: 'Rejection Report', color: 'bg-danger' },
   unknown: { label: 'Unknown', color: 'bg-text-tertiary' },
 };
 

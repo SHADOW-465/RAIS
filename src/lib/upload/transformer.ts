@@ -420,6 +420,9 @@ export async function transformData(
     case 'integrity':
       // Similar to assembly for now
       return transformAssembly(rows);
+    case 'rejection':
+      // Rejection reports are similar to visual inspection
+      return transformVisual(rows);
     default:
       return {
         success: false,

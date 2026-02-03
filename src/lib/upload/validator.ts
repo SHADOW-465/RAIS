@@ -143,6 +143,21 @@ const TYPE_SPECIFIC_RULES: Record<FileType, ValidationRule[]> = {
       message: 'Quantity cannot be negative',
     },
   ],
+  rejection: [
+    { column: 'batch_number', type: 'required', message: 'Batch number is required' },
+    {
+      column: 'rejected_quantity',
+      type: 'type',
+      params: { expectedType: 'number' },
+      message: 'Rejected quantity must be a number',
+    },
+    {
+      column: 'rejected_quantity',
+      type: 'range',
+      params: { min: 0 },
+      message: 'Rejected quantity cannot be negative',
+    },
+  ],
   unknown: [],
 };
 
