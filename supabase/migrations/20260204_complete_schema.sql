@@ -1,8 +1,7 @@
 -- ============================================================================
--- RAIS v2.0 - Normalized Schema for Auditable Manufacturing Statistics
--- Migration: 003_normalized_schema.sql
+-- RAIS v2.0 - Complete Schema (Normalized + AI)
 -- Date: 2026-02-04
--- Purpose: Complete schema rebuild following strict data governance principles
+-- Purpose: Single source of truth for RAIS database schema
 -- ============================================================================
 
 -- Enable extensions
@@ -10,11 +9,14 @@ CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 CREATE EXTENSION IF NOT EXISTS "pgcrypto";
 
 -- ============================================================================
--- DROP OLD TABLES (Clean Slate)
+-- 1. CLEANUP (Drop old objects to ensure clean state)
 -- ============================================================================
 DROP MATERIALIZED VIEW IF EXISTS supplier_performance CASCADE;
 DROP MATERIALIZED VIEW IF EXISTS defect_pareto CASCADE;
 DROP MATERIALIZED VIEW IF EXISTS dashboard_kpis CASCADE;
+DROP MATERIALIZED VIEW IF EXISTS mv_daily_kpis CASCADE;
+DROP MATERIALIZED VIEW IF EXISTS mv_stage_contribution CASCADE;
+DROP MATERIALIZED VIEW IF EXISTS mv_defect_pareto CASCADE;
 
 DROP TABLE IF EXISTS ai_insights CASCADE;
 DROP TABLE IF EXISTS upload_history CASCADE;
@@ -23,10 +25,21 @@ DROP TABLE IF EXISTS suppliers CASCADE;
 DROP TABLE IF EXISTS defects CASCADE;
 DROP TABLE IF EXISTS inspection_records CASCADE;
 DROP TABLE IF EXISTS batches CASCADE;
+-- Drop new tables if they exist to ensuring clean recreation (optional but safer for "reset")
+DROP TABLE IF EXISTS defect_occurrence CASCADE;
+DROP TABLE IF EXISTS stage_inspection_summary CASCADE;
+DROP TABLE IF EXISTS production_summary CASCADE;
+DROP TABLE IF EXISTS defect_master CASCADE;
+DROP TABLE IF EXISTS inspection_stage CASCADE;
+DROP TABLE IF EXISTS file_upload_log CASCADE;
+DROP TABLE IF EXISTS time_dimension CASCADE;
+DROP TABLE IF EXISTS system_config CASCADE;
 
 -- ============================================================================
--- CONFIGURATION TABLE (No more hardcoded values)
+-- 2. CONFIGURATION & DIMENSIONS
 -- ============================================================================
+
+-- Configuration Table
 CREATE TABLE IF NOT EXISTS system_config (
   key VARCHAR(100) PRIMARY KEY,
   value JSONB NOT NULL,
@@ -34,9 +47,8 @@ CREATE TABLE IF NOT EXISTS system_config (
   updated_at TIMESTAMPTZ DEFAULT NOW()
 );
 
-COMMENT ON TABLE system_config IS 'System configuration - all thresholds and settings stored here, not in code';
+COMMENT ON TABLE system_config IS 'System configuration - all thresholds and settings stored here';
 
--- Insert default config
 INSERT INTO system_config (key, value, description) VALUES
   ('cost_per_rejected_unit', '{"value": 365, "currency": "INR"}', 'Cost per rejected unit for financial impact calculations'),
   ('risk_thresholds', '{"high_risk": 15, "watch": 8}', 'Rejection rate thresholds for risk classification (percentage)'),
@@ -44,9 +56,7 @@ INSERT INTO system_config (key, value, description) VALUES
   ('kpi_default_period_days', '{"value": 30}', 'Default period for KPI calculations')
 ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = NOW();
 
--- ============================================================================
--- TIME DIMENSION (For aggregations and reporting)
--- ============================================================================
+-- Time Dimension
 CREATE TABLE IF NOT EXISTS time_dimension (
   date DATE PRIMARY KEY,
   year INT GENERATED ALWAYS AS (EXTRACT(YEAR FROM date)::INT) STORED,
@@ -58,79 +68,64 @@ CREATE TABLE IF NOT EXISTS time_dimension (
   is_weekend BOOLEAN GENERATED ALWAYS AS (EXTRACT(DOW FROM date) IN (0, 6)) STORED
 );
 
-COMMENT ON TABLE time_dimension IS 'Time dimension for efficient date-based aggregations';
-
--- Populate time dimension for 3 years (2024-2026)
+-- Populate time dimension (2024-2026)
 INSERT INTO time_dimension (date)
 SELECT generate_series('2024-01-01'::date, '2026-12-31'::date, '1 day'::interval)::date
 ON CONFLICT DO NOTHING;
 
 -- ============================================================================
--- FILE UPLOAD LOG (Audit Trail Root)
+-- 3. CORE TABLES (Ingestion & Normalization)
 -- ============================================================================
+
+-- File Upload Log (Audit Trail)
 CREATE TABLE IF NOT EXISTS file_upload_log (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   
   -- File identification
   filename VARCHAR(255) NOT NULL,
   original_filename VARCHAR(255) NOT NULL,
-  file_hash VARCHAR(64) NOT NULL, -- SHA256 for deduplication
+  file_hash VARCHAR(64) NOT NULL, -- SHA256
   file_size_bytes INT,
   storage_path TEXT,
   
   -- Classification
   detected_file_type VARCHAR(50) CHECK (detected_file_type IN ('shopfloor', 'assembly', 'visual', 'integrity', 'cumulative', 'production', 'unknown')),
   
-  -- Processing status
+  -- Status
   upload_status VARCHAR(20) DEFAULT 'pending' CHECK (upload_status IN ('pending', 'processing', 'completed', 'failed', 'partial')),
   records_total INT DEFAULT 0,
   records_valid INT DEFAULT 0,
   records_invalid INT DEFAULT 0,
   
-  -- Error tracking
+  -- Metadata
   validation_errors JSONB DEFAULT '[]'::jsonb,
   error_message TEXT,
-  
-  -- AI analysis (READ-ONLY reference - never used for computation)
   ai_analysis JSONB DEFAULT '{}'::jsonb,
-  
-  -- Column mapping that was applied
   mapping_config JSONB DEFAULT '{}'::jsonb,
   
-  -- Audit fields
+  -- Audit
   uploaded_by VARCHAR(100),
   uploaded_at TIMESTAMPTZ DEFAULT NOW(),
   processing_started_at TIMESTAMPTZ,
   processing_completed_at TIMESTAMPTZ,
   
-  -- Prevent duplicate uploads
   CONSTRAINT uk_file_hash UNIQUE (file_hash)
 );
 
 CREATE INDEX idx_file_upload_date ON file_upload_log(uploaded_at DESC);
 CREATE INDEX idx_file_upload_status ON file_upload_log(upload_status);
-CREATE INDEX idx_file_upload_type ON file_upload_log(detected_file_type);
 
-COMMENT ON TABLE file_upload_log IS 'Tracks all uploaded files - root of audit trail';
-COMMENT ON COLUMN file_upload_log.file_hash IS 'SHA256 hash for duplicate detection';
-COMMENT ON COLUMN file_upload_log.ai_analysis IS 'AI interpretation stored for reference only - never affects calculations';
-
--- ============================================================================
--- INSPECTION STAGE (Master Data)
--- ============================================================================
+-- Inspection Stage (Master)
 CREATE TABLE IF NOT EXISTS inspection_stage (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   code VARCHAR(20) UNIQUE NOT NULL,
   name VARCHAR(100) NOT NULL,
   description TEXT,
-  sequence INT NOT NULL, -- Order in production flow
+  sequence INT NOT NULL,
   is_active BOOLEAN DEFAULT TRUE,
   created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
-COMMENT ON TABLE inspection_stage IS 'Master data for inspection stages in production flow';
-
--- Seed inspection stages
 INSERT INTO inspection_stage (code, name, description, sequence) VALUES
   ('SHOPFLOOR', 'Shopfloor Rejection', 'Rejections detected during production on shopfloor', 1),
   ('ASSEMBLY', 'Assembly Inspection', 'Quality check during assembly process', 2),
@@ -139,12 +134,10 @@ INSERT INTO inspection_stage (code, name, description, sequence) VALUES
   ('FINAL', 'Final Inspection', 'Final quality check before dispatch', 5)
 ON CONFLICT (code) DO NOTHING;
 
--- ============================================================================
--- DEFECT MASTER (Normalized Defect Types)
--- ============================================================================
+-- Defect Master (Normalized Types)
 CREATE TABLE IF NOT EXISTS defect_master (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  code VARCHAR(50) UNIQUE NOT NULL, -- Normalized code (e.g., "COAG", "RAISED_WIRE")
+  code VARCHAR(50) UNIQUE NOT NULL,
   display_name VARCHAR(100) NOT NULL,
   category VARCHAR(50) CHECK (category IN ('visual', 'dimensional', 'functional', 'material', 'other')),
   severity VARCHAR(20) DEFAULT 'minor' CHECK (severity IN ('minor', 'major', 'critical')),
@@ -153,9 +146,6 @@ CREATE TABLE IF NOT EXISTS defect_master (
   created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
-COMMENT ON TABLE defect_master IS 'Master list of normalized defect types';
-
--- Seed known defect types from Excel files
 INSERT INTO defect_master (code, display_name, category, severity, description) VALUES
   ('COAG', 'Coagulation', 'material', 'major', 'Material coagulation defect'),
   ('RAISED_WIRE', 'Raised Wire', 'dimensional', 'major', 'Wire protrusion above surface'),
@@ -177,106 +167,84 @@ ON CONFLICT (code) DO UPDATE SET
   category = EXCLUDED.category,
   severity = EXCLUDED.severity;
 
--- ============================================================================
--- PRODUCTION SUMMARY (Daily Production Aggregates)
--- ============================================================================
+-- Production Summary (Daily Aggregates)
 CREATE TABLE IF NOT EXISTS production_summary (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   date DATE NOT NULL REFERENCES time_dimension(date),
   product_code VARCHAR(50),
-  
-  -- Quantities
   produced_quantity INT NOT NULL CHECK (produced_quantity >= 0),
   dispatched_quantity INT DEFAULT 0 CHECK (dispatched_quantity >= 0),
-  
-  -- Audit trail
   source_file_id UUID REFERENCES file_upload_log(id) ON DELETE SET NULL,
-  source_row_numbers INT[], -- Array of row numbers from source file
-  
-  -- Timestamps
+  source_row_numbers INT[],
   created_at TIMESTAMPTZ DEFAULT NOW(),
   updated_at TIMESTAMPTZ DEFAULT NOW(),
-  
-  -- Unique constraint: one record per date+product
   CONSTRAINT uk_production_date_product UNIQUE (date, COALESCE(product_code, '__ALL__'))
 );
 
 CREATE INDEX idx_production_date ON production_summary(date DESC);
-CREATE INDEX idx_production_product ON production_summary(product_code);
-CREATE INDEX idx_production_source ON production_summary(source_file_id);
 
-COMMENT ON TABLE production_summary IS 'Daily production quantities aggregated from cumulative/production files';
-
--- ============================================================================
--- STAGE INSPECTION SUMMARY (Daily Stage-wise Inspection Data)
--- ============================================================================
+-- Stage Inspection Summary
 CREATE TABLE IF NOT EXISTS stage_inspection_summary (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   date DATE NOT NULL REFERENCES time_dimension(date),
   stage_id UUID NOT NULL REFERENCES inspection_stage(id),
-  
-  -- Quantities
   received_quantity INT DEFAULT 0 CHECK (received_quantity >= 0),
   inspected_quantity INT NOT NULL CHECK (inspected_quantity >= 0),
   accepted_quantity INT DEFAULT 0 CHECK (accepted_quantity >= 0),
   hold_quantity INT DEFAULT 0 CHECK (hold_quantity >= 0),
   rejected_quantity INT NOT NULL CHECK (rejected_quantity >= 0),
-  
-  -- Audit trail
   source_file_id UUID REFERENCES file_upload_log(id) ON DELETE SET NULL,
   source_row_number INT,
-  
-  -- Timestamps
   created_at TIMESTAMPTZ DEFAULT NOW(),
-  
-  -- Unique constraint: one record per date+stage
   CONSTRAINT uk_stage_date UNIQUE (date, stage_id),
-  
-  -- Validation: accepted + hold + rejected should not exceed inspected
   CONSTRAINT chk_quantities CHECK (accepted_quantity + hold_quantity + rejected_quantity <= inspected_quantity)
 );
 
 CREATE INDEX idx_stage_summary_date ON stage_inspection_summary(date DESC);
-CREATE INDEX idx_stage_summary_stage ON stage_inspection_summary(stage_id);
-CREATE INDEX idx_stage_summary_source ON stage_inspection_summary(source_file_id);
 
-COMMENT ON TABLE stage_inspection_summary IS 'Daily inspection results per stage';
-
--- ============================================================================
--- DEFECT OCCURRENCE (Long-format Defect Data)
--- This is the pivoted data from wide-format Excel columns
--- ============================================================================
+-- Defect Occurrence (Detailed Records)
 CREATE TABLE IF NOT EXISTS defect_occurrence (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   date DATE NOT NULL REFERENCES time_dimension(date),
   stage_id UUID NOT NULL REFERENCES inspection_stage(id),
   defect_id UUID NOT NULL REFERENCES defect_master(id),
-  
-  -- Quantity
   quantity INT NOT NULL CHECK (quantity > 0),
-  
-  -- Audit trail (critical for traceability)
   source_file_id UUID REFERENCES file_upload_log(id) ON DELETE SET NULL,
   source_row_number INT,
-  source_column_name VARCHAR(100), -- Original Excel column name (e.g., "COAG")
-  
-  -- Timestamps
+  source_column_name VARCHAR(100),
   created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
 CREATE INDEX idx_defect_date ON defect_occurrence(date DESC);
-CREATE INDEX idx_defect_stage ON defect_occurrence(stage_id);
 CREATE INDEX idx_defect_type ON defect_occurrence(defect_id);
-CREATE INDEX idx_defect_source ON defect_occurrence(source_file_id);
-
-COMMENT ON TABLE defect_occurrence IS 'Individual defect occurrences - pivoted from wide Excel format';
-COMMENT ON COLUMN defect_occurrence.source_column_name IS 'Original column name from Excel for audit trail';
 
 -- ============================================================================
--- COMPUTED VIEWS (Deterministic KPIs - Pure SQL)
+-- 4. AI INSIGHTS
 -- ============================================================================
 
--- Daily KPI Summary
+CREATE TABLE IF NOT EXISTS ai_insights (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  insight_type VARCHAR(50) NOT NULL CHECK (insight_type IN ('health_summary', 'root_cause', 'prediction', 'recommendation', 'anomaly', 'file_analysis')),
+  context_hash VARCHAR(64) NOT NULL,
+  context_data JSONB NOT NULL,
+  insight_text TEXT NOT NULL,
+  sentiment VARCHAR(20) CHECK (sentiment IN ('positive', 'neutral', 'concerning', 'critical')),
+  confidence_score DECIMAL(3,2) CHECK (confidence_score BETWEEN 0 AND 1),
+  action_items TEXT[],
+  metadata JSONB DEFAULT '{}'::jsonb,
+  generated_at TIMESTAMPTZ DEFAULT NOW(),
+  expires_at TIMESTAMPTZ NOT NULL,
+  access_count INT DEFAULT 0,
+  last_accessed_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE INDEX idx_ai_insights_lookup ON ai_insights(insight_type, context_hash);
+
+-- ============================================================================
+-- 5. MATERIALIZED VIEWS (KPI Engine)
+-- ============================================================================
+
+-- Daily KPIs
 CREATE MATERIALIZED VIEW mv_daily_kpis AS
 SELECT 
   ps.date,
@@ -301,9 +269,7 @@ ORDER BY ps.date DESC;
 
 CREATE UNIQUE INDEX idx_mv_daily_kpis_date ON mv_daily_kpis(date);
 
-COMMENT ON MATERIALIZED VIEW mv_daily_kpis IS 'Pre-computed daily KPIs for dashboard performance';
-
--- Stage Contribution Analysis
+-- Stage Contribution
 CREATE MATERIALIZED VIEW mv_stage_contribution AS
 WITH stage_totals AS (
   SELECT 
@@ -344,9 +310,7 @@ ORDER BY st.total_rejected DESC;
 
 CREATE UNIQUE INDEX idx_mv_stage_contribution ON mv_stage_contribution(stage_id);
 
-COMMENT ON MATERIALIZED VIEW mv_stage_contribution IS 'Stage-wise rejection contribution (last 30 days)';
-
--- Defect Pareto Analysis
+-- Defect Pareto
 CREATE MATERIALIZED VIEW mv_defect_pareto AS
 WITH defect_totals AS (
   SELECT 
@@ -397,60 +361,36 @@ ORDER BY rank;
 
 CREATE UNIQUE INDEX idx_mv_defect_pareto ON mv_defect_pareto(defect_id);
 
-COMMENT ON MATERIALIZED VIEW mv_defect_pareto IS 'Pareto analysis of defects (last 30 days)';
-
 -- ============================================================================
--- HELPER FUNCTIONS
+-- 6. FUNCTIONS & TRIGGERS
 -- ============================================================================
 
--- Get config value
+-- Get Config Helper
 CREATE OR REPLACE FUNCTION get_config(config_key VARCHAR)
 RETURNS JSONB AS $$
   SELECT value FROM system_config WHERE key = config_key;
 $$ LANGUAGE sql STABLE;
 
--- Get risk thresholds
-CREATE OR REPLACE FUNCTION get_risk_level(rejection_rate DECIMAL)
-RETURNS VARCHAR AS $$
-DECLARE
-  thresholds JSONB;
-  high_threshold DECIMAL;
-  watch_threshold DECIMAL;
-BEGIN
-  thresholds := get_config('risk_thresholds');
-  high_threshold := (thresholds->>'high_risk')::DECIMAL;
-  watch_threshold := (thresholds->>'watch')::DECIMAL;
-  
-  IF rejection_rate >= high_threshold THEN
-    RETURN 'high_risk';
-  ELSIF rejection_rate >= watch_threshold THEN
-    RETURN 'watch';
-  ELSE
-    RETURN 'normal';
-  END IF;
-END;
-$$ LANGUAGE plpgsql STABLE;
-
--- Refresh all materialized views
+-- Refresh Views
 CREATE OR REPLACE FUNCTION refresh_all_kpi_views()
 RETURNS TABLE(view_name TEXT, refresh_time INTERVAL) AS $$
 DECLARE
   start_time TIMESTAMPTZ;
   end_time TIMESTAMPTZ;
 BEGIN
-  -- Refresh daily KPIs
+  -- Daily KPIs
   start_time := clock_timestamp();
   REFRESH MATERIALIZED VIEW CONCURRENTLY mv_daily_kpis;
   end_time := clock_timestamp();
   RETURN QUERY SELECT 'mv_daily_kpis'::TEXT, end_time - start_time;
   
-  -- Refresh stage contribution
+  -- Stage Contribution
   start_time := clock_timestamp();
   REFRESH MATERIALIZED VIEW CONCURRENTLY mv_stage_contribution;
   end_time := clock_timestamp();
   RETURN QUERY SELECT 'mv_stage_contribution'::TEXT, end_time - start_time;
   
-  -- Refresh defect pareto
+  -- Defect Pareto
   start_time := clock_timestamp();
   REFRESH MATERIALIZED VIEW CONCURRENTLY mv_defect_pareto;
   end_time := clock_timestamp();
@@ -459,10 +399,9 @@ END;
 $$ LANGUAGE plpgsql;
 
 -- ============================================================================
--- ROW LEVEL SECURITY
+-- 7. SECURITY (RLS)
 -- ============================================================================
 
--- Enable RLS on all tables
 ALTER TABLE system_config ENABLE ROW LEVEL SECURITY;
 ALTER TABLE file_upload_log ENABLE ROW LEVEL SECURITY;
 ALTER TABLE inspection_stage ENABLE ROW LEVEL SECURITY;
@@ -470,8 +409,9 @@ ALTER TABLE defect_master ENABLE ROW LEVEL SECURITY;
 ALTER TABLE production_summary ENABLE ROW LEVEL SECURITY;
 ALTER TABLE stage_inspection_summary ENABLE ROW LEVEL SECURITY;
 ALTER TABLE defect_occurrence ENABLE ROW LEVEL SECURITY;
+ALTER TABLE ai_insights ENABLE ROW LEVEL SECURITY;
 
--- Policies: Service role has full access
+-- Allow service role full access
 CREATE POLICY "service_role_full_access_config" ON system_config FOR ALL TO service_role USING (true);
 CREATE POLICY "service_role_full_access_upload" ON file_upload_log FOR ALL TO service_role USING (true);
 CREATE POLICY "service_role_full_access_stage" ON inspection_stage FOR ALL TO service_role USING (true);
@@ -479,9 +419,6 @@ CREATE POLICY "service_role_full_access_defect" ON defect_master FOR ALL TO serv
 CREATE POLICY "service_role_full_access_production" ON production_summary FOR ALL TO service_role USING (true);
 CREATE POLICY "service_role_full_access_stage_summary" ON stage_inspection_summary FOR ALL TO service_role USING (true);
 CREATE POLICY "service_role_full_access_occurrence" ON defect_occurrence FOR ALL TO service_role USING (true);
+CREATE POLICY "service_role_full_access_ai" ON ai_insights FOR ALL TO service_role USING (true);
 
--- ============================================================================
--- SCHEMA DOCUMENTATION
--- ============================================================================
-
-COMMENT ON SCHEMA public IS 'RAIS v2.0 - Auditable Manufacturing Rejection Statistics System';
+COMMENT ON SCHEMA public IS 'RAIS v2.0 - Complete Auditable Schema';
