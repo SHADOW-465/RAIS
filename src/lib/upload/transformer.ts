@@ -263,16 +263,15 @@ function applyMapping(
       // Update batch production qty if available
       if (transformed.produced_quantity) {
          // For cumulative, we take the max seen. For daily reports, we sum.
-         // Assuming daily reports here for safety:
          batch.produced_quantity = Math.max(
             batch.produced_quantity || 0, 
             (transformed.produced_quantity as number) || 0
          ); 
-         // If it's assembly/visual, we might want to sum inspected_quantity
-         if (config.fileType === 'assembly') {
-            // In assembly, visual_qty is often the production input for that day
-            batch.produced_quantity = (batch.produced_quantity || 0) + (inspection.inspected_quantity as number || 0);
-         }
+      }
+      
+      // Special handling for Assembly: Visual Qty is the production input
+      if (config.fileType === 'assembly' && inspection.inspected_quantity) {
+         batch.produced_quantity = (batch.produced_quantity || 0) + (inspection.inspected_quantity as number || 0);
       }
 
       // Recalculate risk level

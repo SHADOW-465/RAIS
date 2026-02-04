@@ -85,7 +85,8 @@ const COLUMN_PATTERNS: { [key: string]: RegExp[] } = {
 // ============================================================================
 
 export function generateSmartMapping(headers: string[], fileName: string): MappingResult {
-  const normalizedHeaders = headers.map(h => h.toLowerCase().trim().replace(/[\s\-\.]+/g, '_'));
+  // Normalize: trim, lowercase, replace separators (space, dash, dot, NEWLINE) with underscore
+  const normalizedHeaders = headers.map(h => h.toLowerCase().trim().replace(/[\s\-\.\n\r]+/g, '_'));
   const headerMap = new Map<string, string>(); // normalized -> original
   normalizedHeaders.forEach((h, i) => headerMap.set(h, headers[i]));
 
