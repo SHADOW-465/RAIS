@@ -29,7 +29,7 @@ import {
   Sparkles,
 } from 'lucide-react';
 import { formatDateTime, formatNumber } from '@/lib/utils';
-import type { UploadHistory, FileType } from '@/lib/db/types';
+import type { FileUploadLog, FileType } from '@/lib/db/schema.types';
 
 // Fetcher for SWR
 const fetcher = (url: string) => fetch(url).then((res) => res.json());
@@ -40,7 +40,7 @@ const fileTypeLabels: Record<FileType, { label: string; color: string }> = {
   integrity: { label: 'Integrity Test', color: 'bg-warning' },
   cumulative: { label: 'Cumulative', color: 'bg-info' },
   shopfloor: { label: 'Shop Floor', color: 'bg-secondary' },
-  rejection: { label: 'Rejection Report', color: 'bg-danger' },
+  production: { label: 'Production Report', color: 'bg-danger' },
   unknown: { label: 'Unknown', color: 'bg-text-tertiary' },
 };
 
@@ -93,7 +93,7 @@ export default function UploadPage() {
     isLoading: isHistoryLoading, 
     error: historyError,
     mutate 
-  } = useSWR<{ success: boolean; data: { uploads: UploadHistory[] } }>(
+  } = useSWR<{ success: boolean; data: { uploads: FileUploadLog[] } }>(
     '/api/upload',
     fetcher,
     {
@@ -472,8 +472,8 @@ export default function UploadPage() {
                 </TableHeader>
                 <TableBody>
                   {uploadHistory.map((upload) => {
-                    const fileType = upload.file_type 
-                      ? fileTypeLabels[upload.file_type] 
+                    const fileType = upload.detected_file_type 
+                      ? fileTypeLabels[upload.detected_file_type] 
                       : fileTypeLabels.unknown;
                     return (
                       <TableRow key={upload.id}>
@@ -489,7 +489,7 @@ export default function UploadPage() {
                           </Badge>
                         </TableCell>
                         <TableCell className="text-text-secondary">
-                          {upload.file_size ? formatFileSize(upload.file_size) : '-'}
+                          {upload.file_size_bytes ? formatFileSize(upload.file_size_bytes) : '-'}
                         </TableCell>
                         <TableCell className="text-text-secondary">
                           {formatDateTime(upload.uploaded_at)}
@@ -498,11 +498,11 @@ export default function UploadPage() {
                           {upload.upload_status === 'completed' ? (
                             <div>
                               <span className="font-medium text-success">
-                                {formatNumber(upload.records_imported)}
+                                {formatNumber(upload.records_valid)}
                               </span>
-                              {upload.records_failed > 0 && (
+                              {upload.records_invalid > 0 && (
                                 <span className="text-danger ml-2">
-                                  ({upload.records_failed} failed)
+                                  ({upload.records_invalid} failed)
                                 </span>
                               )}
                             </div>

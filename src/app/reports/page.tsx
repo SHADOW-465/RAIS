@@ -47,20 +47,6 @@ const reportTypes = [
     icon: <PieChart className="w-6 h-6" />,
     format: ['PDF', 'Excel'],
   },
-  {
-    id: 'batch_risk',
-    name: 'Batch Risk Report',
-    description: 'High-risk and watch-level batch details',
-    icon: <AlertCircle className="w-6 h-6" />,
-    format: ['PDF', 'Excel'],
-  },
-  {
-    id: 'supplier_performance',
-    name: 'Supplier Performance',
-    description: 'Supplier quality rankings and trends',
-    icon: <TrendingUp className="w-6 h-6" />,
-    format: ['PDF', 'Excel'],
-  },
 ];
 
 interface ReportHistoryItem {

@@ -1,11 +1,15 @@
 /**
- * Dashboard Analytics API Route
+ * RAIS v2.0 - Dashboard Analytics API Route
  * GET /api/analytics/overview
+ * 
+ * STRICT RULES:
+ * - Uses kpiQueries.ts for all data (pure SQL)
+ * - NO mock data, NO fallbacks
+ * - Returns explicit errors or empty responses
  */
 
 import { NextRequest, NextResponse } from 'next/server';
-import { calculateOverviewKPIs } from '@/lib/analytics/kpiEngine';
-import { generateHealthSummary } from '@/lib/ai/gemini';
+import { getOverviewKPIs } from '@/lib/analytics/kpiQueries';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -16,6 +20,8 @@ export const dynamic = 'force-dynamic';
  *   - period: '7d' | '30d' | '90d' (default: 30d)
  */
 export async function GET(request: NextRequest) {
+  const startTime = Date.now();
+  
   try {
     const searchParams = request.nextUrl.searchParams;
     const period = searchParams.get('period') || '30d';
@@ -23,37 +29,32 @@ export async function GET(request: NextRequest) {
     // Parse period to days
     const periodDays = parsePeriodToDays(period);
 
-    // Calculate KPIs
-    const kpis = await calculateOverviewKPIs(periodDays);
+    // Get KPIs from new engine (pure SQL, no fallbacks)
+    const result = await getOverviewKPIs(periodDays);
 
-    // Generate AI health summary
-    let aiSummary = null;
-    try {
-      aiSummary = await generateHealthSummary({
-        rejectionRate: kpis.rejectionRate.current,
-        trend: kpis.rejectionRate.trend,
-        rejectedCount: kpis.rejectedUnits.current,
-        highRiskBatches: kpis.highRiskBatches.batches,
-        topDefect: { type: 'Visual Defects', percentage: 38 }, // TODO: Get from defect pareto
-      });
-    } catch (error) {
-      console.error('Failed to generate AI summary:', error);
-      // Continue without AI summary
+    if (!result.success) {
+      return NextResponse.json(
+        {
+          success: false,
+          error: {
+            code: 'QUERY_ERROR',
+            message: result.error || 'Failed to query KPIs',
+          },
+        },
+        { status: 500 }
+      );
     }
 
     return NextResponse.json({
       success: true,
-      data: {
-        ...kpis,
-        aiSummary: aiSummary ? {
-          text: aiSummary.insight_text,
-          sentiment: aiSummary.sentiment,
-          actionItems: aiSummary.action_items,
-        } : null,
-      },
+      data: result.data,
       meta: {
         timestamp: new Date().toISOString(),
-        period: period,
+        period,
+        queryTime: result.meta.queryTime,
+        dataSource: result.meta.dataSource,
+        recordCount: result.meta.recordCount,
+        processingTime: Date.now() - startTime,
       },
     });
   } catch (error) {

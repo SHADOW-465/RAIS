@@ -4,7 +4,7 @@
  */
 
 import React from 'react';
-import type { RiskLevel } from '@/lib/db/types';
+import type { RiskLevel } from '@/lib/db/schema.types';
 
 export interface RiskBadgeProps {
   level: RiskLevel;

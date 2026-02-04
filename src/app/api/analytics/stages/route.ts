@@ -1,6 +1,6 @@
 /**
- * RAIS v2.0 - Trends Analytics API Route
- * GET /api/analytics/trends
+ * RAIS v2.0 - Stage Analysis API Route
+ * GET /api/analytics/stages
  * 
  * STRICT RULES:
  * - Uses kpiQueries.ts for all data (pure SQL)
@@ -9,28 +9,21 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server';
-import { getTrendData } from '@/lib/analytics/kpiQueries';
+import { getStageAnalysis } from '@/lib/analytics/kpiQueries';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
 /**
- * Get rejection trend data for charts
- * Query params:
- *   - period: '7d' | '14d' | '30d' | '90d' (default: 30d)
+ * Get stage-wise rejection contribution analysis
+ * Returns breakdown by inspection stage (SHOPFLOOR, ASSEMBLY, VISUAL, etc.)
  */
 export async function GET(request: NextRequest) {
   const startTime = Date.now();
   
   try {
-    const searchParams = request.nextUrl.searchParams;
-    const period = searchParams.get('period') || '30d';
-
-    // Parse period to days
-    const periodDays = parsePeriodToDays(period);
-
-    // Get trend data from new engine (pure SQL, no fallbacks)
-    const result = await getTrendData(periodDays);
+    // Get stage analysis from new engine (pure SQL, no fallbacks)
+    const result = await getStageAnalysis();
 
     if (!result.success) {
       return NextResponse.json(
@@ -38,7 +31,7 @@ export async function GET(request: NextRequest) {
           success: false,
           error: {
             code: 'QUERY_ERROR',
-            message: result.error || 'Failed to query trend data',
+            message: result.error || 'Failed to query stage data',
           },
         },
         { status: 500 }
@@ -50,7 +43,6 @@ export async function GET(request: NextRequest) {
       data: result.data,
       meta: {
         timestamp: new Date().toISOString(),
-        period,
         queryTime: result.meta.queryTime,
         dataSource: result.meta.dataSource,
         recordCount: result.meta.recordCount,
@@ -58,31 +50,16 @@ export async function GET(request: NextRequest) {
       },
     });
   } catch (error) {
-    console.error('Trends analytics error:', error);
+    console.error('Stage analytics error:', error);
     return NextResponse.json(
       {
         success: false,
         error: {
-          code: 'TRENDS_ERROR',
-          message: error instanceof Error ? error.message : 'Failed to fetch trend data',
+          code: 'STAGE_ERROR',
+          message: error instanceof Error ? error.message : 'Failed to fetch stage data',
         },
       },
       { status: 500 }
     );
   }
-}
-
-/**
- * Parse period string to number of days
- */
-function parsePeriodToDays(period: string): number {
-  const periodMap: Record<string, number> = {
-    '7d': 7,
-    '14d': 14,
-    '30d': 30,
-    '60d': 60,
-    '90d': 90,
-  };
-
-  return periodMap[period] || 30;
 }

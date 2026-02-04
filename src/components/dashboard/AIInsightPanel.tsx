@@ -6,7 +6,7 @@
 'use client';
 
 import React, { useState, useEffect, useCallback } from 'react';
-import type { AIInsight, Sentiment } from '@/lib/db/types';
+import type { AIInsight, Sentiment } from '@/lib/db/schema.types';
 
 export interface AIInsightPanelProps {
   insightType: string;
