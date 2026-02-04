@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import useSWR from 'swr';
 import { DashboardHeader } from '@/components/layout';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -73,6 +73,11 @@ const categoryColors: Record<string, string> = {
 export default function AnalysisPage() {
   const [period, setPeriod] = useState('30d');
   const [selectedDefect, setSelectedDefect] = useState<string | null>(null);
+  const [mounted, setMounted] = useState(false);
+
+  useEffect(() => {
+    setMounted(true);
+  }, []);
 
   const { data, isLoading, error, mutate } = useSWR<ParetoResponse>(
     `/api/analytics/pareto?period=${period}`,
@@ -140,7 +145,11 @@ export default function AnalysisPage() {
             </CardHeader>
             <CardContent>
               <div className="h-[600px]">
-                {paretoData.length === 0 ? (
+                {!mounted ? (
+                  <div className="h-full flex items-center justify-center text-gray-500">
+                    Loading Chart...
+                  </div>
+                ) : paretoData.length === 0 ? (
                   <div className="h-full flex items-center justify-center text-gray-500">
                     No defect data available
                   </div>

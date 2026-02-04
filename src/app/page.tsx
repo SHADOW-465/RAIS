@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import useSWR from 'swr';
 import { DashboardHeader } from '@/components/layout';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -75,6 +75,11 @@ interface ParetoDefect {
 
 export default function DashboardPage() {
   const [period, setPeriod] = useState('30d');
+  const [mounted, setMounted] = useState(false);
+
+  useEffect(() => {
+    setMounted(true);
+  }, []);
 
   // Fetch overview data for KPIs
   const { data: overviewData, isLoading: isOverviewLoading, error: overviewError } = useSWR<
@@ -189,7 +194,11 @@ export default function DashboardPage() {
             </CardHeader>
             <CardContent>
               <div className="h-80">
-                {isTrendsLoading ? (
+                {!mounted ? (
+                  <div className="h-full flex items-center justify-center text-gray-500">
+                    Loading Chart...
+                  </div>
+                ) : isTrendsLoading ? (
                   <div className="h-full flex items-center justify-center">
                     <Loader2 className="w-8 h-8 animate-spin text-primary" />
                   </div>
@@ -267,7 +276,11 @@ export default function DashboardPage() {
             </CardHeader>
             <CardContent>
               <div className="h-80">
-                {isParetoLoading ? (
+                {!mounted ? (
+                  <div className="h-full flex items-center justify-center text-gray-500">
+                    Loading Chart...
+                  </div>
+                ) : isParetoLoading ? (
                   <div className="h-full flex items-center justify-center">
                     <Loader2 className="w-8 h-8 animate-spin text-primary" />
                   </div>
