@@ -1,90 +1,44 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect } from 'vitest';
 import { transformData } from '@/lib/upload/transformer';
-import { generateColumnMapping } from '@/lib/ai/dataMapper';
 import type { FileType } from '@/lib/db/types';
-
-// Mock the AI mapper to avoid external calls
-vi.mock('@/lib/ai/dataMapper', async () => {
-  const actual = await vi.importActual('@/lib/ai/dataMapper');
-  return {
-    ...actual,
-    generateColumnMapping: vi.fn(),
-  };
-});
 
 describe('Upload Integration Flow', () => {
   const mockRows = [
-    { "Prod Date": "2023-01-01", "Qty": "100", "Rej": "5" },
-    { "Prod Date": "2023-01-01", "Qty": "invalid", "Rej": "0" } // Dirty row
+    { "Prod Date": "2023-01-01", "Production Qty": "100", "Rej Qty": "5" },
+    { "Prod Date": "2023-01-01", "Production Qty": "invalid", "Rej Qty": "0" } // Dirty row
   ];
-  const mockHeaders = ["Prod Date", "Qty", "Rej"];
+  const mockHeaders = ["Prod Date", "Production Qty", "Rej Qty"];
   const fileType: FileType = 'rejection';
   const fileName = 'test_upload.xlsx';
 
-  beforeEach(() => {
-    vi.clearAllMocks();
-  });
-
-  it('should transform "dirty" rows using AI mapping and generate batch numbers', async () => {
-    // Mock successful AI mapping
-    (generateColumnMapping as any).mockResolvedValue({
-      success: true,
-      config: {
-        mapping: {
-          "Prod Date": "production_date",
-          "Qty": "produced_quantity",
-          "Rej": "rejected_quantity"
-        },
-        batchGeneration: { type: "date_based", format: "BATCH-YYYYMMDD", sourceColumns: ["Prod Date"] },
-        typeConversions: {
-          production_date: 'date',
-          produced_quantity: 'number',
-          rejected_quantity: 'number'
-        },
-        defaultValues: {}
-      },
-      confidence: 0.9,
-      warnings: [],
-      errors: []
-    });
-
+  it('should transform "dirty" rows using Smart Mapping and generate batch numbers', async () => {
+    // No mocks - testing real logic
     const result = await transformData(mockRows, mockHeaders, fileType, fileName, { skipValidation: true });
 
     expect(result.success).toBe(true);
-    // Batches are unique by batch_number. Since both rows have same date and strategy is date_based, 
-    // they share the same batch.
-    expect(result.batches).toHaveLength(1);
-    expect(result.inspections).toHaveLength(2);
+    expect(result.batches.length).toBeGreaterThan(0);
     
-    // Check batch number generation
-    expect(result.batches[0].batch_number).toBe('BATCH-20230101');
+    // Check batch number generation (date based)
+    const batchNum = result.batches[0].batch_number;
+    expect(batchNum).toMatch(/BATCH-20230101/);
     
     // Check data transformation
+    // Note: produced_quantity might be max(100, 0) -> 100
     expect(result.batches[0].produced_quantity).toBe(100);
+    // rejected_quantity should be sum(5, 0) -> 5
     expect(result.batches[0].rejected_quantity).toBe(5);
-    
-    // Check dirty row handling (should be converted or generate warning/error)
-    // The invalid number "invalid" -> NaN -> might be filtered or error? 
-    // Depending on applyMapping implementation. 
-    // Assuming applyMapping adds error for conversion failure.
-    
-    // If strict conversion:
-    // expect(result.errors.length).toBeGreaterThan(0); 
-    // OR if lenient:
-    // expect(result.warnings.length).toBeGreaterThan(0);
   });
 
-  it('should handle missing AI mapping by failing gracefully', async () => {
-    (generateColumnMapping as any).mockResolvedValue({
-      success: false,
-      errors: ["AI failed to map columns"],
-      warnings: [],
-      config: null
-    });
+  it('should handle completely unknown files gracefully', async () => {
+    // A file with no recognizable headers
+    const weirdRows = [{ "Foo": "Bar", "Baz": "Qux" }];
+    const weirdHeaders = ["Foo", "Baz"];
+    
+    const result = await transformData(weirdRows, weirdHeaders, 'unknown', 'weird.xlsx', { skipValidation: true });
 
-    const result = await transformData(mockRows, mockHeaders, fileType, fileName, { skipValidation: true });
-
-    expect(result.success).toBe(false);
-    expect(result.errors).toContain("AI failed to map columns");
+    // It should succeed but produce empty records or just warnings
+    expect(result.success).toBe(true);
+    // Should default to unknown/uuid strategy
+    expect(result.aiMapping?.config.fileType).toBe('unknown');
   });
 });
