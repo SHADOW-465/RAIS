@@ -7,6 +7,7 @@
  * 3. Return standardized data
  */
 
+import crypto from 'crypto';
 import * as XLSX from 'xlsx';
 import { DataNormalizer, NormalizedRow } from './normalizer';
 
@@ -14,16 +15,31 @@ export interface ParseResult {
   success: boolean;
   sheets: {
     name: string;
-    dataRows: NormalizedRow[];
+    dataRows: Record<string, any>[]; // Keep as Record<string, any>[] for dbInserter
+    normalizedRows: NormalizedRow[]; // New system
+    headers: string[];
+    totalRows: number;
   }[];
   metadata: {
     fileType: string;
     totalRows: number;
+    fileSize: number;
   };
+  fileHash: string;
   error?: string;
+  errors?: string[];
+}
+
+/**
+ * Calculate MD5 hash of a buffer
+ */
+export function calculateFileHash(buffer: Buffer): string {
+  return crypto.createHash('md5').update(buffer).digest('hex');
 }
 
 export const parseExcelBuffer = (buffer: Buffer, fileName: string): ParseResult => {
+  const fileHash = calculateFileHash(buffer);
+
   try {
     const workbook = XLSX.read(buffer, { type: 'buffer' });
     const sheets = [];
@@ -31,42 +47,57 @@ export const parseExcelBuffer = (buffer: Buffer, fileName: string): ParseResult 
 
     for (const sheetName of workbook.SheetNames) {
       const worksheet = workbook.Sheets[sheetName];
-      // Use header:1 to get raw array of arrays
-      const rawData = XLSX.utils.sheet_to_json(worksheet, { header: 1, defval: null, blankrows: false });
+
+      // Get data as Record objects for the old pipeline
+      const dataRows = XLSX.utils.sheet_to_json(worksheet, { defval: null, blankrows: false }) as Record<string, any>[];
+
+      // Get raw data as array of arrays for the normalizer
+      const rawArrays = XLSX.utils.sheet_to_json(worksheet, { header: 1, defval: null, blankrows: false }) as any[][];
+
+      // Get headers from first row
+      const headers = (rawArrays[0] as string[]) || [];
 
       // Normalize
-      const normalizedData = DataNormalizer.normalizeSheet(rawData as any[][]);
+      const normalizedRows = DataNormalizer.normalizeSheet(rawArrays);
 
-      if (normalizedData.length > 0) {
+      if (dataRows.length > 0) {
         sheets.push({
           name: sheetName,
-          dataRows: normalizedData
+          dataRows,
+          normalizedRows,
+          headers,
+          totalRows: dataRows.length
         });
-        totalRows += normalizedData.length;
+        totalRows += dataRows.length;
       }
     }
 
     return {
       success: true,
       sheets,
+      fileHash,
       metadata: {
         fileType: fileName.split('.').pop() || 'unknown',
-        totalRows
+        totalRows,
+        fileSize: buffer.length
       }
     };
   } catch (error) {
+    const errorMsg = error instanceof Error ? error.message : 'Unknown error';
     console.error('Error parsing Excel:', error);
     return {
       success: false,
       sheets: [],
-      metadata: { fileType: 'unknown', totalRows: 0 },
-      error: error instanceof Error ? error.message : 'Unknown error'
+      fileHash,
+      metadata: { fileType: 'unknown', totalRows: 0, fileSize: buffer.length },
+      error: errorMsg,
+      errors: [errorMsg]
     };
   }
 };
 
 /**
- * Preview first N rows of first sheet (Updated for raw preview)
+ * Preview first N rows of first sheet
  */
 export function previewSheet(
   buffer: Buffer,
@@ -75,10 +106,10 @@ export function previewSheet(
   const result = parseExcelBuffer(buffer, 'preview.xlsx');
   if (!result.success || result.sheets.length === 0) return null;
 
-  // Normalized Data doesn't have "Headers" per se, it has properties
+  const sheet = result.sheets[0];
   return {
-    headers: ['Date', 'Produced', 'Rejected', 'Defects'],
-    rows: result.sheets[0].dataRows.slice(0, maxRows),
+    headers: sheet.headers,
+    rows: sheet.dataRows.slice(0, maxRows),
     headerRow: 0
   };
 }

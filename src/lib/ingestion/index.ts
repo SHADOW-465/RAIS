@@ -12,34 +12,31 @@
  */
 
 // Excel parsing
-export { 
-  parseExcelBuffer, 
-  calculateFileHash, 
-  getSheetNames, 
+export {
+  parseExcelBuffer,
+  calculateFileHash,
   previewSheet,
-  detectHeaderRow,
-  type RawSheet,
-  type ExcelParseResult,
+  type ParseResult as ExcelParseResult,
 } from './excelReader';
 
 // Schema validation
-export { 
-  validateSchema, 
+export {
+  validateSchema,
   getFileTypeDescription,
   type SchemaValidationResult,
   type ColumnMappings,
 } from './schemaValidator';
 
 // Data transformation
-export { 
-  transformToNormalized, 
+export {
+  transformToNormalized,
   getStageCodeForFileType,
   type TransformResult,
   type TransformContext,
 } from './dataTransformer';
 
 // Database insertion
-export { 
+export {
   checkFileExists,
   createUploadLog,
   updateUploadStatus,

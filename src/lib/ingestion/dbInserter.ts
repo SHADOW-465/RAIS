@@ -320,7 +320,7 @@ export async function insertTransformedData(
 export async function refreshKPIViews(): Promise<boolean> {
   try {
     const { error } = await supabaseAdmin.rpc('refresh_all_kpi_views');
-    
+
     if (error) {
       console.error('Error refreshing views:', error);
       return false;
@@ -337,6 +337,10 @@ export async function refreshKPIViews(): Promise<boolean> {
 // COMPLETE INGESTION PIPELINE
 // ============================================================================
 
+import { parseExcelBuffer, calculateFileHash } from './excelReader';
+import { validateSchema } from './schemaValidator';
+import { transformToNormalized, getStageCodeForFileType } from './dataTransformer';
+
 /**
  * Run the complete ingestion pipeline
  * Excel Buffer -> Parse -> Validate -> Transform -> Insert -> Refresh
@@ -350,15 +354,11 @@ export async function runIngestionPipeline(
   message: string;
   stats: InsertResult['stats'] | null;
 }> {
-  // Import dynamically to avoid circular dependencies
-  const { parseExcelBuffer, calculateFileHash } = await import('./excelReader');
-  const { validateSchema } = await import('./schemaValidator');
-  const { transformToNormalized, getStageCodeForFileType } = await import('./dataTransformer');
 
   // Step 1: Calculate hash and check for duplicates
   const fileHash = calculateFileHash(buffer);
   const existsCheck = await checkFileExists(fileHash);
-  
+
   if (existsCheck.exists) {
     return {
       success: false,
@@ -370,12 +370,12 @@ export async function runIngestionPipeline(
 
   // Step 2: Parse Excel
   const parseResult = parseExcelBuffer(buffer, fileName);
-  
+
   if (!parseResult.success || parseResult.sheets.length === 0) {
     return {
       success: false,
       uploadId: null,
-      message: `Parse failed: ${parseResult.errors.join(', ')}`,
+      message: `Parse failed: ${parseResult.errors?.join(', ') || parseResult.error || 'Unknown error'}`,
       stats: null,
     };
   }
@@ -384,7 +384,7 @@ export async function runIngestionPipeline(
 
   // Step 3: Validate schema
   const validationResult = validateSchema(sheet.headers, sheet.dataRows, fileName);
-  
+
   if (!validationResult.isValid) {
     const errorCount = validationResult.errors.filter(e => e.severity === 'error').length;
     return {
@@ -421,7 +421,7 @@ export async function runIngestionPipeline(
   // Step 5: Get stage ID and defect mappings
   const stageCode = getStageCodeForFileType(validationResult.fileType);
   const stageId = await getStageId(stageCode);
-  
+
   if (!stageId) {
     await updateUploadStatus(uploadId, 'failed', {
       error_message: `Unknown stage: ${stageCode}`,
@@ -463,7 +463,7 @@ export async function runIngestionPipeline(
   return {
     success: insertResult.success,
     uploadId,
-    message: insertResult.success 
+    message: insertResult.success
       ? `Successfully imported ${insertResult.stats.productionInserted + insertResult.stats.stageInserted + insertResult.stats.defectsInserted} records`
       : `Import completed with errors: ${insertResult.errors.join(', ')}`,
     stats: insertResult.stats,
