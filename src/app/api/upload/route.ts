@@ -48,9 +48,9 @@ export async function POST(request: NextRequest) {
 
       const parseResult = parseExcelBuffer(buffer, fileName);
       if (parseResult.success && parseResult.sheets.length > 0) {
-        // Aggregate data from ALL sheets
-        const rawRows = parseResult.sheets.flatMap(sheet => sheet.dataRows);
-        SessionStore.saveUpload(sessionId, fileName, rawRows);
+        // Aggregate data from ALL sheets using normalized rows
+        const normalizedRows = parseResult.sheets.flatMap(sheet => sheet.normalizedRows);
+        SessionStore.saveUpload(sessionId, fileName, normalizedRows);
 
         return NextResponse.json({
           success: true,
@@ -58,7 +58,7 @@ export async function POST(request: NextRequest) {
             uploadId: `session-${Date.now()}`,
             message: 'File staged in current session',
             fileType: 'visual',
-            import: { recordsImported: rawRows.length, recordsFailed: 0 }
+            import: { recordsImported: normalizedRows.length, recordsFailed: 0 }
           }
         });
       }
@@ -82,10 +82,10 @@ export async function POST(request: NextRequest) {
 
       if (parseResult.success && parseResult.sheets.length > 0) {
         // Simple normalization for the Local Store
-        const rawRows = parseResult.sheets[0].dataRows;
+        const normalizedRows = parseResult.sheets[0].normalizedRows;
 
         // Save to local DB
-        LocalStore.saveUpload(fileName, rawRows);
+        LocalStore.saveUpload(fileName, normalizedRows);
 
         return NextResponse.json({
           success: true,
@@ -107,7 +107,7 @@ export async function POST(request: NextRequest) {
             },
             smartParsing: { headerRowIndex: 0 },
             import: {
-              recordsImported: rawRows.length,
+              recordsImported: normalizedRows.length,
               recordsFailed: 0,
               viewsRefreshed: true
             }
