@@ -11,10 +11,12 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server';
-import { supabaseAdmin } from '@/lib/db/client';
+import { supabaseAdmin, isConfigured } from '@/lib/db/client';
 import {
   runIngestionPipeline,
 } from '@/lib/ingestion';
+import { LocalStore } from '@/lib/db/localStore';
+import { parseExcelBuffer } from '@/lib/ingestion/excelReader';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -26,10 +28,98 @@ const MAX_FILE_SIZE = 10 * 1024 * 1024;
 // POST - Upload and process Excel file with new ingestion pipeline
 // ============================================================================
 
+import { SessionStore } from '@/lib/db/sessionStore';
+
 export async function POST(request: NextRequest) {
   const startTime = Date.now();
+  const sessionId = request.headers.get('x-rais-session-id');
 
   try {
+    // SESSION MODE: Save to Session Store if header present
+    if (sessionId) {
+      console.log(`[Upload v2] Processing in Session Mode: ${sessionId}`);
+      const formData = await request.formData();
+      const file = formData.get('file') as File | null;
+      if (!file) throw new Error('No file provided');
+
+      const arrayBuffer = await file.arrayBuffer();
+      const buffer = Buffer.from(arrayBuffer);
+      const fileName = file.name;
+
+      const parseResult = parseExcelBuffer(buffer, fileName);
+      if (parseResult.success && parseResult.sheets.length > 0) {
+        // Aggregate data from ALL sheets
+        const rawRows = parseResult.sheets.flatMap(sheet => sheet.dataRows);
+        SessionStore.saveUpload(sessionId, fileName, rawRows);
+
+        return NextResponse.json({
+          success: true,
+          data: {
+            uploadId: `session-${Date.now()}`,
+            message: 'File staged in current session',
+            fileType: 'visual',
+            import: { recordsImported: rawRows.length, recordsFailed: 0 }
+          }
+        });
+      }
+    }
+
+    // MOCK MODE: Parse file and save to Local JSON
+    if (!isConfigured) {
+      console.warn('[Upload v2] Processing with Local JSON Store (Missing Credentials)');
+
+      const formData = await request.formData();
+      const file = formData.get('file') as File | null;
+
+      if (!file) throw new Error('No file provided');
+
+      const arrayBuffer = await file.arrayBuffer();
+      const buffer = Buffer.from(arrayBuffer);
+      const fileName = file.name;
+
+      // Parse using existing logic
+      const parseResult = parseExcelBuffer(buffer, fileName);
+
+      if (parseResult.success && parseResult.sheets.length > 0) {
+        // Simple normalization for the Local Store
+        const rawRows = parseResult.sheets[0].dataRows;
+
+        // Save to local DB
+        LocalStore.saveUpload(fileName, rawRows);
+
+        return NextResponse.json({
+          success: true,
+          data: {
+            uploadId: `local-${Date.now()}`,
+            message: 'File processed and saved to Local Database',
+            fileType: 'visual',
+            aiAnalysis: {
+              summary: 'Analysis complete. Data has been aggregated locally.',
+              fileType: 'visual',
+              confidence: 1.0,
+              hasAnomaly: false,
+              detectedMetrics: {
+                totalRejectedColumn: 'Qty Rejected',
+                defectCountColumn: 'Defect Qty',
+                batchNumberColumn: 'Batch No',
+                dateColumn: 'Date'
+              }
+            },
+            smartParsing: { headerRowIndex: 0 },
+            import: {
+              recordsImported: rawRows.length,
+              recordsFailed: 0,
+              viewsRefreshed: true
+            }
+          },
+          meta: {
+            timestamp: new Date().toISOString(),
+            version: '2.0-local',
+          },
+        });
+      }
+    }
+
     // Parse form data
     const formData = await request.formData();
     const file = formData.get('file') as File | null;
@@ -80,7 +170,7 @@ export async function POST(request: NextRequest) {
 
     // ===== RUN COMPLETE INGESTION PIPELINE =====
     console.log(`[Upload v2] Processing: ${file.name}`);
-    
+
     const pipelineResult = await runIngestionPipeline(buffer, file.name);
 
     if (!pipelineResult.success) {
@@ -140,6 +230,29 @@ export async function POST(request: NextRequest) {
 
 export async function GET(request: NextRequest) {
   try {
+    if (!isConfigured) {
+      // Return mock history
+      return NextResponse.json({
+        success: true,
+        data: {
+          uploads: [
+            {
+              id: 'mock-1',
+              original_filename: 'MOCK_DATA_2025.xlsx',
+              detected_file_type: 'visual',
+              upload_status: 'completed',
+              records_valid: 250,
+              records_invalid: 0,
+              uploaded_at: new Date().toISOString(),
+              file_size_bytes: 123456
+            }
+          ],
+          total: 1,
+        },
+        meta: { timestamp: new Date().toISOString() }
+      });
+    }
+
     const searchParams = request.nextUrl.searchParams;
     const limit = parseInt(searchParams.get('limit') || '20');
     const offset = parseInt(searchParams.get('offset') || '0');

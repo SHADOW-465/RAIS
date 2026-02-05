@@ -19,7 +19,14 @@ import {
 } from 'recharts';
 
 // Fetcher for SWR
-const fetcher = (url: string) => fetch(url).then((res) => res.json());
+const fetcher = (url: string) => {
+  const headers: Record<string, string> = {};
+  if (typeof window !== 'undefined') {
+    const sid = sessionStorage.getItem('rais_session_id');
+    if (sid) headers['x-rais-session-id'] = sid;
+  }
+  return fetch(url, { headers }).then((res) => res.json());
+};
 
 // API Response Types (matching new v2 API)
 interface OverviewKPIResponse {
@@ -169,9 +176,9 @@ export default function DashboardPage() {
   // Calculate trend from timeline
   const monthlyTrend = trendTimeline.length >= 2
     ? {
-        current: trendTimeline[trendTimeline.length - 1]?.rejection_rate || 0,
-        previous: trendTimeline[0]?.rejection_rate || 0,
-      }
+      current: trendTimeline[trendTimeline.length - 1]?.rejection_rate || 0,
+      previous: trendTimeline[0]?.rejection_rate || 0,
+    }
     : null;
 
   const hasError = overviewError || trendsError || paretoError;
@@ -268,7 +275,7 @@ export default function DashboardPage() {
             <CardHeader className="flex-row items-center justify-between pb-2">
               <div className="flex-1">
                 <CardTitle className="text-xl font-bold">Rejection Trend Over Time</CardTitle>
-                <select 
+                <select
                   className="mt-2 px-3 py-1 text-sm border border-gray-300 rounded-md bg-white"
                   value={period}
                   onChange={(e) => setPeriod(e.target.value)}
@@ -416,12 +423,11 @@ export default function DashboardPage() {
               </CardTitle>
             </CardHeader>
             <CardContent>
-              <div className={`p-4 rounded-lg ${
-                aiSummary.sentiment === 'concerning' ? 'bg-orange-50' :
-                aiSummary.sentiment === 'critical' ? 'bg-red-50' :
-                aiSummary.sentiment === 'positive' ? 'bg-green-50' :
-                'bg-blue-50'
-              }`}>
+              <div className={`p-4 rounded-lg ${aiSummary.sentiment === 'concerning' ? 'bg-orange-50' :
+                  aiSummary.sentiment === 'critical' ? 'bg-red-50' :
+                    aiSummary.sentiment === 'positive' ? 'bg-green-50' :
+                      'bg-blue-50'
+                }`}>
                 <p className="text-lg text-gray-800 whitespace-pre-line">{aiSummary.text}</p>
                 {aiSummary.actionItems && aiSummary.actionItems.length > 0 && (
                   <div className="mt-4">
@@ -440,7 +446,7 @@ export default function DashboardPage() {
             </CardContent>
           </Card>
         )}
-        
+
         {/* Loading state for AI */}
         {isAILoading && !aiSummary && (
           <Card className="shadow-sm mb-8 border-dashed border-2 border-gray-200">
@@ -536,9 +542,8 @@ function KPICard({ title, value, change, changeDirection, subtitle, progressValu
           <p className="text-4xl font-bold text-black tracking-tight">{value}</p>
           {change !== undefined && (
             <span
-              className={`text-lg font-bold ${
-                changeDirection === 'down' ? 'text-green-600' : 'text-red-600'
-              }`}
+              className={`text-lg font-bold ${changeDirection === 'down' ? 'text-green-600' : 'text-red-600'
+                }`}
             >
               {changeDirection === 'up' ? '↑' : '↓'} {Math.abs(change).toFixed(1)}%
             </span>

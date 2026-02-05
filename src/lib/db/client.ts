@@ -14,7 +14,11 @@ const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL || 'https://placeholde
 const SUPABASE_ANON_KEY = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || 'placeholder-anon-key';
 const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || 'placeholder-service-key';
 
-const isConfigured = !!process.env.NEXT_PUBLIC_SUPABASE_URL;
+export const isConfigured =
+  !!process.env.NEXT_PUBLIC_SUPABASE_URL &&
+  !process.env.NEXT_PUBLIC_SUPABASE_URL.includes('your-project-id') &&
+  !SUPABASE_SERVICE_ROLE_KEY.includes('your-service-role-key') &&
+  !SUPABASE_SERVICE_ROLE_KEY.includes('placeholder');
 
 // ============================================================================
 // CLIENT FACTORIES
@@ -89,7 +93,7 @@ export async function testConnection(): Promise<boolean> {
  */
 export async function refreshMaterializedViews(): Promise<void> {
   const { error } = await supabaseAdmin.rpc('refresh_all_materialized_views');
-  
+
   if (error) {
     console.error('Failed to refresh materialized views:', error);
     throw error;
@@ -102,12 +106,12 @@ export async function refreshMaterializedViews(): Promise<void> {
  */
 export async function cleanExpiredInsights(): Promise<number> {
   const { data, error } = await supabaseAdmin.rpc('clean_expired_insights');
-  
+
   if (error) {
     console.error('Failed to clean expired insights:', error);
     throw error;
   }
-  
+
   return data || 0;
 }
 
@@ -131,18 +135,18 @@ export async function uploadFile(
   bucketName: string = 'uploads'
 ): Promise<{ path: string; url: string }> {
   const bucket = getStorageBucket(bucketName);
-  
+
   const { data, error } = await bucket.upload(path, file, {
     cacheControl: '3600',
     upsert: false,
   });
-  
+
   if (error) {
     throw new Error(`File upload failed: ${error.message}`);
   }
-  
+
   const { data: urlData } = bucket.getPublicUrl(data.path);
-  
+
   return {
     path: data.path,
     url: urlData.publicUrl,
@@ -157,9 +161,9 @@ export async function deleteFile(
   bucketName: string = 'uploads'
 ): Promise<void> {
   const bucket = getStorageBucket(bucketName);
-  
+
   const { error } = await bucket.remove([path]);
-  
+
   if (error) {
     throw new Error(`File deletion failed: ${error.message}`);
   }
@@ -174,13 +178,13 @@ export async function getSignedUrl(
   bucketName: string = 'uploads'
 ): Promise<string> {
   const bucket = getStorageBucket(bucketName);
-  
+
   const { data, error } = await bucket.createSignedUrl(path, expiresIn);
-  
+
   if (error) {
     throw new Error(`Failed to create signed URL: ${error.message}`);
   }
-  
+
   return data.signedUrl;
 }
 
@@ -196,7 +200,7 @@ export async function executeInTransaction(
   operations: (() => Promise<void>)[]
 ): Promise<void> {
   const results: unknown[] = [];
-  
+
   try {
     for (const operation of operations) {
       const result = await operation();
@@ -238,6 +242,6 @@ export function handleDatabaseError(error: unknown): never {
       pgError.details
     );
   }
-  
+
   throw new DatabaseError('Unknown database error', 'UNKNOWN_ERROR', error);
 }

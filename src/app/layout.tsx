@@ -2,8 +2,9 @@ import type { Metadata } from "next";
 import { Inter } from "next/font/google";
 import "./globals.css";
 import { DashboardLayout } from "@/components/layout";
+import { SessionProvider } from "@/contexts/SessionContext";
 
-const inter = Inter({ 
+const inter = Inter({
   subsets: ["latin"],
   display: 'swap',
   variable: '--font-inter',
@@ -23,9 +24,11 @@ export default function RootLayout({
   return (
     <html lang="en" className={inter.variable}>
       <body className="font-sans antialiased">
-        <DashboardLayout>
-          {children}
-        </DashboardLayout>
+        <SessionProvider>
+          <DashboardLayout>
+            {children}
+          </DashboardLayout>
+        </SessionProvider>
       </body>
     </html>
   );

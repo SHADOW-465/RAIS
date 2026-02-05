@@ -32,7 +32,14 @@ import { formatDateTime, formatNumber } from '@/lib/utils';
 import type { FileUploadLog, FileType } from '@/lib/db/schema.types';
 
 // Fetcher for SWR
-const fetcher = (url: string) => fetch(url).then((res) => res.json());
+const fetcher = (url: string) => {
+  const headers: Record<string, string> = {};
+  if (typeof window !== 'undefined') {
+    const sid = sessionStorage.getItem('rais_session_id');
+    if (sid) headers['x-rais-session-id'] = sid;
+  }
+  return fetch(url, { headers }).then((res) => res.json());
+};
 
 const fileTypeLabels: Record<FileType, { label: string; color: string }> = {
   visual: { label: 'Visual Inspection', color: 'bg-primary' },
@@ -43,6 +50,8 @@ const fileTypeLabels: Record<FileType, { label: string; color: string }> = {
   production: { label: 'Production Report', color: 'bg-danger' },
   unknown: { label: 'Unknown', color: 'bg-text-tertiary' },
 };
+
+
 
 interface AIAnalysis {
   summary: string;
@@ -88,11 +97,11 @@ export default function UploadPage() {
   const [uploadResult, setUploadResult] = useState<UploadResponse | null>(null);
 
   // Fetch upload history from API
-  const { 
-    data: historyData, 
-    isLoading: isHistoryLoading, 
+  const {
+    data: historyData,
+    isLoading: isHistoryLoading,
     error: historyError,
-    mutate 
+    mutate
   } = useSWR<{ success: boolean; data: { uploads: FileUploadLog[] } }>(
     '/api/upload',
     fetcher,
@@ -191,8 +200,13 @@ export default function UploadPage() {
       }, 300);
 
       // Perform actual upload
+      const headers: HeadersInit = {};
+      const sid = sessionStorage.getItem('rais_session_id');
+      if (sid) headers['x-rais-session-id'] = sid;
+
       const response = await fetch('/api/upload', {
         method: 'POST',
+        headers,
         body: formData,
       });
 
@@ -270,11 +284,10 @@ export default function UploadPage() {
               onDragLeave={handleDragLeave}
               onDragOver={handleDragOver}
               onDrop={handleDrop}
-              className={`relative border-3 border-dashed rounded-xl p-12 text-center transition-all ${
-                isDragActive
-                  ? 'border-primary bg-primary/5'
-                  : 'border-border hover:border-primary/50'
-              }`}
+              className={`relative border-3 border-dashed rounded-xl p-12 text-center transition-all ${isDragActive
+                ? 'border-primary bg-primary/5'
+                : 'border-border hover:border-primary/50'
+                }`}
             >
               {!selectedFile ? (
                 <>
@@ -448,7 +461,7 @@ export default function UploadPage() {
                 <span className="text-base text-danger">Failed to load upload history</span>
               </div>
             )}
-            
+
             {isHistoryLoading ? (
               <div className="py-8 flex items-center justify-center">
                 <Loader2 className="w-8 h-8 animate-spin text-primary" />
@@ -472,8 +485,8 @@ export default function UploadPage() {
                 </TableHeader>
                 <TableBody>
                   {uploadHistory.map((upload) => {
-                    const fileType = upload.detected_file_type 
-                      ? fileTypeLabels[upload.detected_file_type] 
+                    const fileType = upload.detected_file_type
+                      ? fileTypeLabels[upload.detected_file_type]
                       : fileTypeLabels.unknown;
                     return (
                       <TableRow key={upload.id}>
