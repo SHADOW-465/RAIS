@@ -18,6 +18,7 @@ export interface ParseResult {
     dataRows: Record<string, any>[]; // Keep as Record<string, any>[] for dbInserter
     normalizedRows: NormalizedRow[]; // New system
     headers: string[];
+    headerRowIndex: number;
     totalRows: number;
   }[];
   metadata: {
@@ -48,14 +49,30 @@ export const parseExcelBuffer = (buffer: Buffer, fileName: string): ParseResult 
     for (const sheetName of workbook.SheetNames) {
       const worksheet = workbook.Sheets[sheetName];
 
-      // Get data as Record objects for the old pipeline
-      const dataRows = XLSX.utils.sheet_to_json(worksheet, { defval: null, blankrows: false }) as Record<string, any>[];
-
       // Get raw data as array of arrays for the normalizer
       const rawArrays = XLSX.utils.sheet_to_json(worksheet, { header: 1, defval: null, blankrows: false }) as any[][];
 
-      // Get headers from first row
-      const headers = (rawArrays[0] as string[]) || [];
+      // Detect header row using DataNormalizer
+      const { index: headerRowIndex } = DataNormalizer.detectHeaderRow(rawArrays);
+
+      // Determine the range to read data from
+      let dataRows: Record<string, any>[] = [];
+      let headers: string[] = [];
+
+      if (headerRowIndex !== -1) {
+        // Use detected header row
+        dataRows = XLSX.utils.sheet_to_json(worksheet, {
+          range: headerRowIndex,
+          defval: null,
+          blankrows: false
+        }) as Record<string, any>[];
+
+        headers = (rawArrays[headerRowIndex] as string[]).map(h => String(h || '').trim());
+      } else {
+        // Fallback to default (row 0)
+        dataRows = XLSX.utils.sheet_to_json(worksheet, { defval: null, blankrows: false }) as Record<string, any>[];
+        headers = (rawArrays[0] as string[]).map(h => String(h || '').trim()) || [];
+      }
 
       // Normalize
       const normalizedRows = DataNormalizer.normalizeSheet(rawArrays);
@@ -66,6 +83,7 @@ export const parseExcelBuffer = (buffer: Buffer, fileName: string): ParseResult 
           dataRows,
           normalizedRows,
           headers,
+          headerRowIndex: headerRowIndex !== -1 ? headerRowIndex : 0,
           totalRows: dataRows.length
         });
         totalRows += dataRows.length;

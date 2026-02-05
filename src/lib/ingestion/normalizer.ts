@@ -11,15 +11,13 @@ export interface NormalizedRow {
 }
 
 export const DataNormalizer = {
-    normalizeSheet: (rawRows: any[][]): NormalizedRow[] => {
-        if (!rawRows || rawRows.length === 0) return [];
+    detectHeaderRow: (rawRows: any[][]): { index: number; schema: ReportSchema | undefined } => {
+        if (!rawRows || rawRows.length === 0) return { index: -1, schema: undefined };
 
         // 1. Detect Schema
         const schema = detectSchema(rawRows);
         if (!schema) {
-            console.warn('[Normalizer] No matching schema found for sheet. Falling back to generic parsing if possible?');
-            // TODO: Fallback or return empty
-            return [];
+            return { index: -1, schema: undefined };
         }
         console.log(`[Normalizer] Detected Schema: ${schema.name}`);
 
@@ -33,6 +31,20 @@ export const DataNormalizer = {
             }
         }
 
+        return { index: headerRowIndex, schema };
+    },
+
+    normalizeSheet: (rawRows: any[][]): NormalizedRow[] => {
+        if (!rawRows || rawRows.length === 0) return [];
+
+        const { index: headerRowIndex, schema } = DataNormalizer.detectHeaderRow(rawRows);
+
+        if (!schema) {
+            console.warn('[Normalizer] No matching schema found for sheet. Falling back to generic parsing if possible?');
+            // TODO: Fallback or return empty
+            return [];
+        }
+
         if (headerRowIndex === -1) {
             console.warn('[Normalizer] Could not find header row');
             return [];
@@ -41,7 +53,11 @@ export const DataNormalizer = {
         const headers = rawRows[headerRowIndex].map(c => String(c).trim());
 
         // 3. Map Columns
-        const dateColIdx = headers.findIndex((h: string) => /DATE|S\.NO/i.test(h));
+        let dateColIdx = headers.findIndex((h: string) => /DATE|MONTH/i.test(h));
+        if (dateColIdx === -1) {
+            dateColIdx = headers.findIndex((h: string) => /S\.NO/i.test(h));
+        }
+
         const producedColIndicies = findColumnIndices(headers, schema.producedColumnPatterns || []);
 
         // 4. Process Rows
@@ -128,6 +144,19 @@ function parseDate(val: any): string | null {
     }
     const str = String(val).trim();
     if (str.toUpperCase().includes('TOTAL') || str.toUpperCase().includes('WEEK')) return null;
+
+    // Try parse Month YY format (e.g. "APRIL 25" -> "2025-04-01")
+    const monthYearMatch = str.match(/^([A-Za-z]+)[\s-]*(\d{2})$/);
+    if (monthYearMatch) {
+        const monthName = monthYearMatch[1];
+        const yearShort = parseInt(monthYearMatch[2], 10);
+        const year = 2000 + yearShort;
+        const date = new Date(`${monthName} 1, ${year}`);
+        if (!isNaN(date.getTime())) {
+            const month = date.getMonth() + 1;
+            return `${year}-${String(month).padStart(2, '0')}-01`;
+        }
+    }
 
     // Try parse string
     const d = new Date(str);

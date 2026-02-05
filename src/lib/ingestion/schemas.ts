@@ -9,16 +9,38 @@ export interface ReportSchema {
      * This allows handling contextual columns (e.g. "REJ QTY" meaning distinct things based on previous columns).
      */
     extractDefects: (headers: string[], row: any[]) => Record<string, number>;
-    stage: 'visual' | 'assembly' | 'balloon' | 'production_master' | 'unknown';
+    stage: 'visual' | 'assembly' | 'balloon' | 'production_master' | 'shopfloor' | 'unknown';
     isProductionMaster?: boolean;
 }
 
 export const REPORT_SCHEMAS: ReportSchema[] = [
     {
+        id: 'shopfloor',
+        name: 'Shopfloor Rejection Report',
+        signaturePatterns: [/MONTHLY.*SHOP.*FLOOR/i],
+        stage: 'shopfloor',
+        headerPattern: /(DATE|MONTH).*(TROLLEYS|COAG)/i,
+        producedColumnPatterns: [/No of TROLLEYS/i],
+        extractDefects: (headers: string[], row: any[]) => {
+            const defects: Record<string, number> = {};
+             headers.forEach((h, idx) => {
+                const header = (h || '').trim();
+                // Skip Date, Trolleys, and Total columns
+                if (/DATE|TROLLEYS|TOTAL/i.test(header) || !header) return;
+
+                const val = parseNum(row[idx]);
+                if (val > 0) {
+                     defects[header] = (defects[header] || 0) + val;
+                }
+            });
+            return defects;
+        }
+    },
+    {
         id: 'production_master',
         name: 'Production Master Record',
         signaturePatterns: [/YEARLY PRODUCTION/i],
-        headerPattern: /DATE|MONTH/i,
+        headerPattern: /(DATE|MONTH).*(QTY|PROD|REJ|DISPATCH)/i,
         producedColumnPatterns: [/TOTAL.*PROD/i, /QTY.*PROD/i],
         stage: 'production_master',
         isProductionMaster: true,
@@ -29,7 +51,7 @@ export const REPORT_SCHEMAS: ReportSchema[] = [
         name: 'Assembly Rejection Report',
         signaturePatterns: [/ASSEMBLY SECTION/i, /VISUAL.*QTY/i],
         stage: 'assembly',
-        headerPattern: /DATE/i,
+        headerPattern: /(DATE|MONTH).*(QTY|REJ|VISUAL|FINAL)/i,
         producedColumnPatterns: [/VISUAL.*QTY/i, /FINAL.*CHECKED.*QTY/i],
         // Note: Total Produced might be Visual Qty? Or Final Check?
         // Usually Produced = Input. Visual Qty is the input to the line.
@@ -68,7 +90,7 @@ export const REPORT_SCHEMAS: ReportSchema[] = [
         name: 'Balloon & Valve Integrity Report',
         signaturePatterns: [/BALLOON.*VALVE.*INTEGRITY/i, /STRUCK BALLOON/i],
         stage: 'balloon',
-        headerPattern: /DATE/i,
+        headerPattern: /(DATE|MONTH).*(QTY|REJ|CHECKED)/i,
         producedColumnPatterns: [/CHECKED QTY/i],
         extractDefects: (headers: string[], row: any[]) => {
             const defects: Record<string, number> = {};
@@ -101,7 +123,7 @@ export const REPORT_SCHEMAS: ReportSchema[] = [
         name: 'Visual Inspection Report',
         signaturePatterns: [/VISUAL INSPECTION REPORT/i],
         stage: 'visual',
-        headerPattern: /DATE|S\.NO/i,
+        headerPattern: /(DATE|MONTH|S\.NO).*(QTY|REJ|INSPECTED|PROD)/i,
         producedColumnPatterns: [/TOTAL.*INSPECTED/i, /PROD.*QTY/i],
         extractDefects: (headers: string[], row: any[]) => {
             const defects: Record<string, number> = {};
