@@ -24,12 +24,35 @@ export async function GET(request: NextRequest) {
     const period = searchParams.get('period') || '30d';
     const periodDays = parsePeriodToDays(period);
 
-    let overviewData;
-    let trendData;
-    let paretoData;
+    // Initial Decision: Session or Local (or Mock if not configured)
+    let useLocalMode = !!sessionId || !isConfigured;
+    let overviewData, trendData, paretoData;
 
-    // A. SESSION OR LOCAL MODE: Read from JSON Store
-    if (sessionId || !isConfigured) {
+    // A. DATABASE MODE (Try first if configured)
+    if (!useLocalMode) {
+      try {
+        // Fetch all required data in parallel
+        const [overviewResult, trendResult, paretoResult] = await Promise.all([
+          getOverviewKPIs(periodDays),
+          getTrendData(periodDays),
+          getParetoData()
+        ]);
+
+        if (!overviewResult.success || !trendResult.success || !paretoResult.success) {
+          throw new Error('Failed to fetch underlying KPI data for analysis');
+        }
+
+        overviewData = overviewResult.data;
+        trendData = trendResult.data;
+        paretoData = paretoResult.data;
+      } catch (dbError) {
+        console.warn('Database unavailable for AI Summary, falling back to local store:', dbError);
+        useLocalMode = true; // Fallback to Local Mode
+      }
+    }
+
+    // B. LOCAL / SESSION MODE (Fallback or Explicit)
+    if (useLocalMode) {
       console.log(`[AI Summarize] Using JSON Store (Session: ${sessionId || 'none'}, Configured: ${isConfigured})`);
       let db;
       if (sessionId) {
@@ -69,24 +92,6 @@ export async function GET(request: NextRequest) {
         .sort((a, b) => b.total_quantity - a.total_quantity);
 
       paretoData = { defects: sortedDefects };
-    }
-    // B. DATABASE MODE: Query from Supabase
-    else {
-      // Fetch all required data in parallel
-      const [overviewResult, trendResult, paretoResult] = await Promise.all([
-        getOverviewKPIs(periodDays),
-        getTrendData(periodDays),
-        getParetoData()
-      ]);
-
-      // Check for data fetch errors
-      if (!overviewResult.success || !trendResult.success || !paretoResult.success) {
-        throw new Error('Failed to fetch underlying KPI data for analysis');
-      }
-
-      overviewData = overviewResult.data;
-      trendData = trendResult.data;
-      paretoData = paretoResult.data;
     }
 
     // 2. Prepare data for AI

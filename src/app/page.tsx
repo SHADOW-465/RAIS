@@ -287,7 +287,7 @@ export default function DashboardPage() {
               </div>
             </CardHeader>
             <CardContent>
-              <div className="h-80">
+              <div className="h-80 w-full">
                 {!mounted ? (
                   <div className="h-full flex items-center justify-center text-gray-500">
                     Loading Chart...
@@ -424,9 +424,9 @@ export default function DashboardPage() {
             </CardHeader>
             <CardContent>
               <div className={`p-4 rounded-lg ${aiSummary.sentiment === 'concerning' ? 'bg-orange-50' :
-                  aiSummary.sentiment === 'critical' ? 'bg-red-50' :
-                    aiSummary.sentiment === 'positive' ? 'bg-green-50' :
-                      'bg-blue-50'
+                aiSummary.sentiment === 'critical' ? 'bg-red-50' :
+                  aiSummary.sentiment === 'positive' ? 'bg-green-50' :
+                    'bg-blue-50'
                 }`}>
                 <p className="text-lg text-gray-800 whitespace-pre-line">{aiSummary.text}</p>
                 {aiSummary.actionItems && aiSummary.actionItems.length > 0 && (
