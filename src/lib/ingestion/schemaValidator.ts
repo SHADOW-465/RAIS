@@ -187,7 +187,8 @@ export function validateSchema(
   }
 
   // Step 2: Build column mappings
-  const mappings = buildColumnMappings(normalizedHeaders, matchedSchema);
+  // Use original headers for mappings so keys match data rows
+  const mappings = buildColumnMappings(headers, matchedSchema);
 
   // Step 3: Validate data rows
   if (rows.length === 0) {

@@ -278,6 +278,18 @@ function parseDate(value: unknown): string | null {
       }
     }
 
+    // Try Month YY format (e.g., "APRIL 25" -> "2025-04-01")
+    const monthYearShort = trimmed.match(/^([A-Za-z]+)[\s-]*(\d{2})$/);
+    if (monthYearShort) {
+      const [, monthName, yearShort] = monthYearShort;
+      const year = 2000 + parseInt(yearShort, 10);
+      const date = new Date(`${monthName} 1, ${year}`);
+      if (!isNaN(date.getTime())) {
+        const month = date.getMonth() + 1;
+        return `${year}-${String(month).padStart(2, '0')}-01`;
+      }
+    }
+
     // Try DD/MM/YYYY format (common in India)
     const ddmmyyyy = trimmed.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})$/);
     if (ddmmyyyy) {

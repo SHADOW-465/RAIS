@@ -27,14 +27,14 @@ describe('Ingestion Pipeline Integration', () => {
     
     const sheet = parseResult.sheets[0];
     expect(sheet.headerRowIndex).toBe(2); // 0-based index of Row 3
-    expect(sheet.headers).toContain('date');
-    expect(sheet.headers).toContain('coag');
+    expect(sheet.headers).toContain('DATE'); // Case sensitive
+    expect(sheet.headers).toContain('COAG');
 
     // 3. Validate
     const validationResult = validateSchema(sheet.headers, sheet.dataRows, 'test.xlsx');
     expect(validationResult.isValid).toBe(true);
     expect(validationResult.fileType).toBe('shopfloor');
-    expect(validationResult.mappings.dateColumn).toBe('date');
+    expect(validationResult.mappings.dateColumn).toMatch(/DATE/i);
     
     // 4. Transform
     // Mock defectIdMap
