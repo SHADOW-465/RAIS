@@ -9,39 +9,88 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { generateHealthSummary } from '@/lib/ai/gemini';
 import { getOverviewKPIs, getTrendData, getParetoData } from '@/lib/analytics/kpiQueries';
+import { isConfigured } from '@/lib/db/client';
+import { SessionStore } from '@/lib/db/sessionStore';
+import { LocalStore } from '@/lib/db/localStore';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
-/**
- * Generate AI health summary
- * Query params:
- *   - period: '7d' | '30d' | '90d' (default: 30d)
- */
 export async function GET(request: NextRequest) {
+  const sessionId = request.headers.get('x-rais-session-id');
+
   try {
     const searchParams = request.nextUrl.searchParams;
     const period = searchParams.get('period') || '30d';
     const periodDays = parsePeriodToDays(period);
 
-    // 1. Fetch all required data in parallel
-    const [overviewResult, trendResult, paretoResult] = await Promise.all([
-      getOverviewKPIs(periodDays),
-      getTrendData(periodDays),
-      getParetoData()
-    ]);
+    let overviewData;
+    let trendData;
+    let paretoData;
 
-    // Check for data fetch errors
-    if (!overviewResult.success || !trendResult.success || !paretoResult.success) {
-      throw new Error('Failed to fetch underlying KPI data for analysis');
+    // A. SESSION OR LOCAL MODE: Read from JSON Store
+    if (sessionId || !isConfigured) {
+      console.log(`[AI Summarize] Using JSON Store (Session: ${sessionId || 'none'}, Configured: ${isConfigured})`);
+      let db;
+      if (sessionId) {
+        db = SessionStore.read(sessionId);
+      } else {
+        db = LocalStore.read();
+      }
+
+      // Calculate overview from JSON DB
+      const produced = db.overview.produced;
+      const rejected = db.overview.rejected;
+      const rate = produced > 0 ? (rejected / produced) * 100 : 0;
+
+      overviewData = {
+        rejection: { rate, trend: 'stable' as const },
+        volume: { rejected }
+      };
+
+      // Calculate trend from JSON DB (simplified)
+      const timeline = Object.entries(db.overview.days).map(([date, day]) => ({
+        date,
+        rejection_rate: day.produced > 0 ? (day.rejected / day.produced) * 100 : 0,
+        risk_level: (day.produced > 0 && (day.rejected / day.produced) > 0.15) ? 'high_risk' : 'normal',
+        produced: day.produced
+      })).sort((a, b) => a.date.localeCompare(b.date));
+
+      trendData = { timeline };
+
+      // Calculate pareto from JSON DB
+      const sortedDefects = Object.entries(db.defects)
+        .map(([code, data]) => ({
+          defect_code: code,
+          display_name: code,
+          total_quantity: data.count,
+          percentage: (data.count / (rejected || 1)) * 100
+        }))
+        .sort((a, b) => b.total_quantity - a.total_quantity);
+
+      paretoData = { defects: sortedDefects };
+    }
+    // B. DATABASE MODE: Query from Supabase
+    else {
+      // Fetch all required data in parallel
+      const [overviewResult, trendResult, paretoResult] = await Promise.all([
+        getOverviewKPIs(periodDays),
+        getTrendData(periodDays),
+        getParetoData()
+      ]);
+
+      // Check for data fetch errors
+      if (!overviewResult.success || !trendResult.success || !paretoResult.success) {
+        throw new Error('Failed to fetch underlying KPI data for analysis');
+      }
+
+      overviewData = overviewResult.data;
+      trendData = trendResult.data;
+      paretoData = paretoResult.data;
     }
 
-    const overview = overviewResult.data;
-    const trend = trendResult.data;
-    const pareto = paretoResult.data;
-
     // 2. Prepare data for AI
-    if (!overview || !trend || !pareto) {
+    if (!overviewData || !trendData || !paretoData) {
       return NextResponse.json({
         success: true,
         data: null, // No data to analyze
@@ -50,29 +99,28 @@ export async function GET(request: NextRequest) {
     }
 
     // Filter high risk days (rate > 15%)
-    // Use trend timeline which has daily resolution
-    const highRiskDays = trend.timeline
-      .filter(d => d.risk_level === 'high_risk')
-      .map(d => ({
+    const highRiskDays = trendData.timeline
+      .filter((d: any) => d.risk_level === 'high_risk')
+      .map((d: any) => ({
         date: d.date,
         rejectionRate: d.rejection_rate,
         produced: d.produced
       }))
-      .sort((a, b) => b.rejectionRate - a.rejectionRate) // Sort by severity
-      .slice(0, 5); // Top 5
+      .sort((a: any, b: any) => b.rejectionRate - a.rejectionRate)
+      .slice(0, 5);
 
     // Get top defect
-    const topDefectObj = pareto.defects[0];
+    const topDefectObj = paretoData.defects[0];
     const topDefect = topDefectObj ? {
-      type: topDefectObj.display_name || topDefectObj.defect_code,
-      percentage: topDefectObj.percentage
+      type: (topDefectObj as any).display_name || (topDefectObj as any).defect_code,
+      percentage: (topDefectObj as any).percentage
     } : { type: 'None', percentage: 0 };
 
     // 3. Generate Insight
     const insight = await generateHealthSummary({
-      rejectionRate: overview.rejection.rate,
-      trend: overview.rejection.trend,
-      rejectedCount: overview.volume.rejected,
+      rejectionRate: (overviewData as any).rejection.rate,
+      trend: (overviewData as any).rejection.trend,
+      rejectedCount: (overviewData as any).volume.rejected,
       highRiskDays: highRiskDays,
       topDefect: topDefect,
     });
@@ -96,6 +144,7 @@ export async function GET(request: NextRequest) {
 
   } catch (error) {
     console.error('AI Summarize error:', error);
+    // ... rest of error handling
 
     const errorMessage = error instanceof Error ? error.message : 'Failed to generate AI summary';
     const isApiKeyError = errorMessage.includes('API key');

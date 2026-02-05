@@ -51,18 +51,24 @@ export async function GET(request: NextRequest) {
         cumulative += d.count;
         return {
           rank: index + 1,
-          ...d,
+          defect_id: `mock-${d.defect_code}`,
+          defect_code: d.defect_code,
+          display_name: d.defect_code,
+          total_quantity: d.count,
+          category: d.category,
+          severity: d.severity,
+          days_occurred: 1, // Simplified
           percentage: totalDefects > 0 ? parseFloat(((d.count / totalDefects) * 100).toFixed(2)) : 0,
-          cumulative_percentage: totalDefects > 0 ? parseFloat(((cumulative / totalDefects) * 100).toFixed(2)) : 0
+          cumulative_pct: totalDefects > 0 ? parseFloat(((cumulative / totalDefects) * 100).toFixed(2)) : 0
         };
       });
 
       return NextResponse.json({
         success: true,
         data: {
-          pareto: paretoData,
+          defects: paretoData,
           total_defects: totalDefects,
-          top_80_percent_count: paretoData.filter(d => d.cumulative_percentage <= 80).length
+          top_80_pct_count: paretoData.filter(d => d.cumulative_pct <= 80).length
         },
         meta: {
           timestamp: new Date().toISOString(),

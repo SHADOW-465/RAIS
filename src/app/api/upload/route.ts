@@ -61,6 +61,14 @@ export async function POST(request: NextRequest) {
             import: { recordsImported: normalizedRows.length, recordsFailed: 0 }
           }
         });
+      } else {
+        return NextResponse.json({
+          success: false,
+          error: {
+            code: 'PARSE_ERROR',
+            message: parseResult.error || 'Failed to parse Excel file in session mode'
+          }
+        }, { status: 400 });
       }
     }
 
@@ -81,8 +89,8 @@ export async function POST(request: NextRequest) {
       const parseResult = parseExcelBuffer(buffer, fileName);
 
       if (parseResult.success && parseResult.sheets.length > 0) {
-        // Simple normalization for the Local Store
-        const normalizedRows = parseResult.sheets[0].normalizedRows;
+        // Aggregate data from ALL sheets for consistency
+        const normalizedRows = parseResult.sheets.flatMap(sheet => sheet.normalizedRows);
 
         // Save to local DB
         LocalStore.saveUpload(fileName, normalizedRows);
@@ -117,6 +125,14 @@ export async function POST(request: NextRequest) {
             version: '2.0-local',
           },
         });
+      } else {
+        return NextResponse.json({
+          success: false,
+          error: {
+            code: 'PARSE_ERROR',
+            message: parseResult.error || 'Failed to parse Excel file in local mode'
+          }
+        }, { status: 400 });
       }
     }
 

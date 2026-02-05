@@ -5,7 +5,7 @@
 
 import { GoogleGenerativeAI, HarmCategory, HarmBlockThreshold } from '@google/generative-ai';
 import crypto from 'crypto';
-import { supabaseAdmin } from '../db/client';
+import { supabaseAdmin, isConfigured } from '../db/client';
 import type { AIInsight, InsightType, Sentiment } from '../db/schema.types';
 
 // ============================================================================
@@ -251,6 +251,8 @@ async function getCachedInsight(
   type: InsightType,
   contextData: Record<string, unknown>
 ): Promise<AIInsight | null> {
+  if (!isConfigured) return null; // Skip cache if Supabase not configured
+
   const cacheKey = generateCacheKey(type, contextData);
 
   const { data, error } = await supabaseAdmin
@@ -283,6 +285,27 @@ async function cacheInsight(
   const expiresAt = new Date();
   expiresAt.setHours(expiresAt.getHours() + CACHE_TTL_HOURS);
 
+  // Return a non-persisted object if no DB configured
+  if (!isConfigured) {
+    return {
+      id: crypto.randomUUID(),
+      insight_type: type,
+      context_hash: cacheKey,
+      context_data: contextData,
+      insight_text: text,
+      sentiment,
+      confidence_score: confidence,
+      action_items: actionItems,
+      generated_at: new Date().toISOString(),
+      expires_at: expiresAt.toISOString(),
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+      metadata: {},
+      access_count: 0,
+      last_accessed_at: null,
+    } as AIInsight;
+  }
+
   const { data, error } = await supabaseAdmin
     .from('ai_insights')
     .insert({
@@ -299,7 +322,25 @@ async function cacheInsight(
     .single();
 
   if (error) {
-    throw new Error(`Failed to cache AI insight: ${error.message}`);
+    console.error('Failed to cache AI insight, returning un-cached result:', error.message);
+    // Fallback to un-cached object if insert fails
+    return {
+      id: crypto.randomUUID(),
+      insight_type: type,
+      context_hash: cacheKey,
+      context_data: contextData,
+      insight_text: text,
+      sentiment,
+      confidence_score: confidence,
+      action_items: actionItems,
+      generated_at: new Date().toISOString(),
+      expires_at: expiresAt.toISOString(),
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+      metadata: {},
+      access_count: 0,
+      last_accessed_at: null,
+    } as AIInsight;
   }
 
   return data as AIInsight;
@@ -309,16 +350,14 @@ async function cacheInsight(
  * Increment access count for cached insight
  */
 async function incrementInsightAccessCount(id: string): Promise<void> {
+  if (!isConfigured) return; // Skip if no DB
+
   await supabaseAdmin
     .from('ai_insights')
     .update({
-      access_count: supabaseAdmin.rpc('increment', { row_id: id }), // Assuming 'increment' function exists or update manually
       last_accessed_at: new Date().toISOString(),
     })
     .eq('id', id);
-    
-    // Note: If increment RPC doesn't exist, we can just update last_accessed_at.
-    // The previous code assumed an RPC. Let's make it safer.
 }
 
 // ============================================================================
