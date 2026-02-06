@@ -26,8 +26,9 @@ describe('Upload Integration Flow', () => {
   });
 
   it('should transform "dirty" rows using AI mapping and generate batch numbers', async () => {
-    // Mock successful AI mapping
-    (generateColumnMapping as any).mockResolvedValue({
+    // Mock successful AI mapping (using unknown as intermediate cast)
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (generateColumnMapping as unknown as any).mockResolvedValue({
       success: true,
       config: {
         mapping: {
@@ -55,19 +56,19 @@ describe('Upload Integration Flow', () => {
     // they share the same batch.
     expect(result.batches).toHaveLength(1);
     expect(result.inspections).toHaveLength(2);
-    
+
     // Check batch number generation
     expect(result.batches[0].batch_number).toBe('BATCH-20230101');
-    
+
     // Check data transformation
     expect(result.batches[0].produced_quantity).toBe(100);
     expect(result.batches[0].rejected_quantity).toBe(5);
-    
+
     // Check dirty row handling (should be converted or generate warning/error)
     // The invalid number "invalid" -> NaN -> might be filtered or error? 
     // Depending on applyMapping implementation. 
     // Assuming applyMapping adds error for conversion failure.
-    
+
     // If strict conversion:
     // expect(result.errors.length).toBeGreaterThan(0); 
     // OR if lenient:
@@ -75,7 +76,8 @@ describe('Upload Integration Flow', () => {
   });
 
   it('should handle missing AI mapping by failing gracefully', async () => {
-    (generateColumnMapping as any).mockResolvedValue({
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (generateColumnMapping as unknown as any).mockResolvedValue({
       success: false,
       errors: ["AI failed to map columns"],
       warnings: [],

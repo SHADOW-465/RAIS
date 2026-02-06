@@ -22,19 +22,19 @@ vi.mock('@google/generative-ai', () => {
 });
 
 describe('Data Mapper (AI Mocked)', () => {
-  let generateColumnMapping: any;
-  let applyMapping: any;
-  let BATCH_SCHEMA: any;
+  let generateColumnMapping: typeof import('@/lib/ai/dataMapper').generateColumnMapping;
+  let applyMapping: typeof import('@/lib/ai/dataMapper').applyMapping;
+  let BATCH_SCHEMA: typeof import('@/lib/ai/dataMapper').BATCH_SCHEMA;
 
   beforeEach(async () => {
     vi.resetModules();
     vi.stubEnv('GEMINI_API_KEY', 'mock-key');
-    
+
     const mod = await import('@/lib/ai/dataMapper');
     generateColumnMapping = mod.generateColumnMapping;
     applyMapping = mod.applyMapping;
     BATCH_SCHEMA = mod.BATCH_SCHEMA;
-    
+
     vi.clearAllMocks();
   });
 
@@ -63,7 +63,7 @@ describe('Data Mapper (AI Mocked)', () => {
 
       const rows = [{ "Qty": 100, "Rej": 5, "Date": "2023-01-01" }];
       const headers = ["Qty", "Rej", "Date"];
-      
+
       const result = await generateColumnMapping(rows, headers, BATCH_SCHEMA, 'rejection', 'test.xlsx');
 
       expect(result.success).toBe(true);
@@ -76,7 +76,7 @@ describe('Data Mapper (AI Mocked)', () => {
 
       const rows = [{ "Qty": 100 }];
       const headers = ["Qty"];
-      
+
       const result = await generateColumnMapping(rows, headers, BATCH_SCHEMA, 'rejection', 'test.xlsx');
 
       // It should fall back to heuristic mapping
@@ -90,7 +90,7 @@ describe('Data Mapper (AI Mocked)', () => {
       const rows = [
         { "Qty": "100", "Rej": 5, "Date": "2023-01-01" }
       ];
-      
+
       const config: DataTransformationConfig = {
         mapping: {
           "Qty": "produced_quantity",
@@ -99,9 +99,9 @@ describe('Data Mapper (AI Mocked)', () => {
         },
         batchGeneration: { type: "uuid" },
         typeConversions: {
-            produced_quantity: 'number',
-            rejected_quantity: 'number',
-            production_date: 'date'
+          produced_quantity: 'number',
+          rejected_quantity: 'number',
+          production_date: 'date'
         },
         defaultValues: {}
       };
@@ -110,28 +110,28 @@ describe('Data Mapper (AI Mocked)', () => {
 
       expect(result.batches).toHaveLength(1);
       // For 'rejection' type, produced_quantity comes from row (100)
-      expect(result.batches[0].produced_quantity).toBe(100); 
+      expect(result.batches[0].produced_quantity).toBe(100);
       // rejected_quantity comes from aggregation (5)
       expect(result.batches[0].rejected_quantity).toBe(5);
-      expect(result.batches[0].batch_number).toBeDefined(); 
+      expect(result.batches[0].batch_number).toBeDefined();
     });
 
     it('should auto-generate batch number from date', () => {
       const rows = [
         { "Date": "2023-10-25" }
       ];
-      
+
       const config: DataTransformationConfig = {
         mapping: {
           "Date": "production_date"
         },
-        batchGeneration: { 
-            type: "date_based", 
-            format: "BATCH-YYYYMMDD",
-            sourceColumns: ["Date"]
+        batchGeneration: {
+          type: "date_based",
+          format: "BATCH-YYYYMMDD",
+          sourceColumns: ["Date"]
         },
         typeConversions: {
-            production_date: 'date'
+          production_date: 'date'
         },
         defaultValues: {}
       };

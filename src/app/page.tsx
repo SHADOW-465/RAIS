@@ -4,7 +4,8 @@ import React, { useState } from 'react';
 import useSWR from 'swr';
 import { DashboardHeader } from '@/components/layout';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Settings, Loader2 } from 'lucide-react';
+import { Button } from '@/components/ui/button';
+import { Settings, Loader2, Upload, AlertCircle } from 'lucide-react';
 import {
   XAxis,
   YAxis,
@@ -16,105 +17,77 @@ import {
   BarChart,
   Bar,
 } from 'recharts';
+import Link from 'next/link';
+import { StatsResponse, backendApi } from '@/lib/api/backend';
 
-// Fetcher for SWR
-const fetcher = (url: string) => fetch(url).then((res) => res.json());
+// Backend URL
+const BACKEND_URL = process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:8000';
 
-// API Response Types
-interface OverviewData {
-  rejectionRate: {
-    current: number;
-    previous: number;
-    change: number;
-    trend: 'up' | 'down' | 'stable';
-  };
-  rejectedUnits: {
-    current: number;
-    previous: number;
-    change: number;
-  };
-  estimatedCost: {
-    current: number;
-    previous: number;
-    change: number;
-    currency: string;
-  };
-  highRiskBatches: {
-    count: number;
-    batches: Array<{
-      id: string;
-      batchNumber: string;
-      rejectionRate: number;
-      productionDate: string;
-    }>;
-  };
-  watchBatches: {
-    count: number;
-  };
-  aiSummary: {
-    text: string;
-    sentiment: string;
-    actionItems: string[];
-  } | null;
-}
+// Fetcher for SWR - uses POST for stats endpoint
+const statsFetcher = async (): Promise<StatsResponse> => {
+  const response = await fetch(`${BACKEND_URL}/api/stats`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({}),
+  });
+  if (!response.ok) throw new Error('Failed to fetch stats');
+  return response.json();
+};
 
-interface TrendDataPoint {
-  date: string;
-  produced: number;
-  rejected: number;
-  rejectionRate: number;
-}
-
-interface ParetoDefect {
-  type: string;
-  category: string | null;
-  count: number;
-  percentage: number;
-  cumulativePercentage: number;
-}
+// Overview fetcher
+const overviewFetcher = async (): Promise<{ has_data: boolean;[key: string]: unknown }> => {
+  try {
+    const response = await fetch(`${BACKEND_URL}/api/stats/overview`);
+    if (!response.ok) return { has_data: false };
+    return response.json();
+  } catch {
+    return { has_data: false };
+  }
+};
 
 export default function DashboardPage() {
   const [period, setPeriod] = useState('30d');
 
-  // Fetch overview data for KPIs
-  const { data: overviewData, isLoading: isOverviewLoading, error: overviewError } = useSWR<
-    { success: boolean; data: OverviewData }
-  >(`/api/analytics/overview?period=${period}`, fetcher, {
-    refreshInterval: 60000,
-  });
+  // Fetch overview to check if data exists
+  const { data: overview, isLoading: isOverviewLoading } = useSWR(
+    'overview',
+    overviewFetcher,
+    { refreshInterval: 30000, revalidateOnFocus: false }
+  );
 
-  // Fetch trend data for AreaChart
-  const { data: trendsData, isLoading: isTrendsLoading, error: trendsError } = useSWR<
-    { success: boolean; data: { timeline: TrendDataPoint[] } }
-  >(`/api/analytics/trends?period=${period}`, fetcher, {
-    refreshInterval: 60000,
-  });
+  // Fetch full stats from Python backend
+  const { data: statsData, isLoading: isStatsLoading, error: statsError } = useSWR<StatsResponse>(
+    overview?.has_data ? 'stats' : null,
+    statsFetcher,
+    { refreshInterval: 60000, revalidateOnFocus: false }
+  );
 
-  // Fetch pareto data for BarChart
-  const { data: paretoData, isLoading: isParetoLoading, error: paretoError } = useSWR<
-    { success: boolean; data: { defects: ParetoDefect[] } }
-  >(`/api/analytics/pareto?period=${period}`, fetcher, {
-    refreshInterval: 60000,
-  });
+  const hasData = overview?.has_data ?? false;
+  const isLoading = isOverviewLoading || (hasData && isStatsLoading);
 
-  const kpis = overviewData?.data;
-  const trendTimeline = trendsData?.data?.timeline || [];
-  const paretoDefects = paretoData?.data?.defects || [];
+  // Extract data from stats response
+  const kpis = statsData?.kpis;
+  const stageKpis = statsData?.stage_kpis || [];
+  const rejectionTrend = statsData?.rejection_trend;
+  const defectPareto = statsData?.defect_pareto;
+  const aiSummary = statsData?.ai_summary;
 
-  // Calculate top rejection category from pareto data
-  const topCategory = paretoDefects.length > 0 
-    ? paretoDefects.reduce((max, defect) => defect.percentage > max.percentage ? defect : max, paretoDefects[0])
-    : null;
+  // Transform trend data for Recharts
+  const trendChartData = rejectionTrend?.series?.[0]?.data?.map(point => ({
+    date: point.label || point.date,
+    rejectionRate: point.value,
+  })) || [];
 
-  // Calculate monthly trend from trend data
-  const monthlyTrend = trendTimeline.length >= 2
-    ? {
-        current: trendTimeline[trendTimeline.length - 1]?.rejectionRate || 0,
-        previous: trendTimeline[0]?.rejectionRate || 0,
-      }
-    : null;
+  // Transform pareto data for Recharts
+  const paretoChartData = defectPareto?.defects?.map(defect => ({
+    type: defect.defect_name,
+    count: defect.count,
+    percentage: defect.percentage,
+    cumulative: defect.cumulative_percentage,
+  })) || [];
 
-  const hasError = overviewError || trendsError || paretoError;
+  // Get top defect from pareto
+  const topDefect = paretoChartData.length > 0 ? paretoChartData[0] : null;
 
   return (
     <>
@@ -126,197 +99,208 @@ export default function DashboardPage() {
           <h2 className="text-4xl font-bold text-black">Key Performance (KPI)</h2>
         </div>
 
+        {/* No Data State */}
+        {!isLoading && !hasData && (
+          <Card className="mb-8 border-amber-200 bg-amber-50">
+            <CardContent className="p-8 text-center">
+              <AlertCircle className="w-12 h-12 mx-auto mb-4 text-amber-600" />
+              <h3 className="text-xl font-bold text-slate-800 mb-2">No Data Available</h3>
+              <p className="text-slate-600 mb-4">
+                Upload your Excel files to start analyzing rejection data.
+              </p>
+              <Link href="/upload">
+                <Button className="bg-teal-600 hover:bg-teal-700">
+                  <Upload className="w-4 h-4 mr-2" />
+                  Upload Data Files
+                </Button>
+              </Link>
+            </CardContent>
+          </Card>
+        )}
+
         {/* Error Display */}
-        {hasError && (
+        {statsError && (
           <div className="mb-6 p-4 bg-red-50 border border-red-200 rounded-lg">
             <p className="text-red-700">
-              Error loading dashboard data. Please try refreshing the page.
+              Error loading dashboard data. Make sure the Python backend is running on port 8000.
             </p>
           </div>
         )}
 
         {/* KPI Cards - Horizontal Pills */}
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
-          {isOverviewLoading ? (
+          {isLoading ? (
             <>
               <KPICardSkeleton />
               <KPICardSkeleton />
               <KPICardSkeleton />
             </>
-          ) : (
+          ) : hasData ? (
             <>
               <KPICard
                 title="Overall Rejection Rate"
-                value={kpis ? `${kpis.rejectionRate.current.toFixed(1)}%` : '--'}
-                change={kpis?.rejectionRate.change}
-                changeDirection={kpis?.rejectionRate.trend === 'down' ? 'down' : 'up'}
-                progressValue={kpis?.rejectionRate.current}
+                value={kpis ? `${kpis.rejection_rate.toFixed(1)}%` : '--'}
+                change={kpis?.rejection_rate_change}
+                changeDirection={kpis?.rejection_trend === 'down' ? 'down' : 'up'}
+                progressValue={kpis?.rejection_rate}
               />
               <KPICard
-                title="Top Rejection Category"
-                subtitle={topCategory?.type || 'Loading...'}
-                value={topCategory ? `${topCategory.percentage.toFixed(1)}%` : '--'}
-                progressValue={topCategory?.percentage}
+                title="Top Defect Type"
+                subtitle={topDefect?.type || 'N/A'}
+                value={topDefect ? `${topDefect.percentage.toFixed(1)}%` : '--'}
+                progressValue={topDefect?.percentage}
               />
               <KPICard
-                title="Monthly Trend"
-                value={monthlyTrend ? `${monthlyTrend.current.toFixed(1)}%` : '--'}
-                change={monthlyTrend ? monthlyTrend.current - monthlyTrend.previous : undefined}
-                changeDirection={monthlyTrend && monthlyTrend.current < monthlyTrend.previous ? 'down' : 'up'}
-                progressValue={monthlyTrend?.current}
+                title="Total Rejected Units"
+                value={kpis?.total_rejected?.toLocaleString() || '--'}
+                subtitle={`of ${kpis?.total_produced?.toLocaleString() || '0'} produced`}
               />
+            </>
+          ) : (
+            <>
+              <KPICard title="Overall Rejection Rate" value="--" />
+              <KPICard title="Top Defect Type" value="--" />
+              <KPICard title="Total Rejected Units" value="--" />
             </>
           )}
         </div>
 
-        {/* Charts Row */}
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
-          {/* Trend Chart */}
-          <Card className="shadow-sm">
-            <CardHeader className="flex-row items-center justify-between pb-2">
-              <div className="flex-1">
-                <CardTitle className="text-xl font-bold">Rejection Trend Over Time</CardTitle>
-                <select 
-                  className="mt-2 px-3 py-1 text-sm border border-gray-300 rounded-md bg-white"
-                  value={period}
-                  onChange={(e) => setPeriod(e.target.value)}
-                >
-                  <option value="7d">Last 7 Days</option>
-                  <option value="30d">Last 30 Days</option>
-                  <option value="90d">Last 90 Days</option>
-                </select>
-              </div>
-            </CardHeader>
-            <CardContent>
-              <div className="h-80">
-                {isTrendsLoading ? (
-                  <div className="h-full flex items-center justify-center">
-                    <Loader2 className="w-8 h-8 animate-spin text-primary" />
-                  </div>
-                ) : trendTimeline.length === 0 ? (
-                  <div className="h-full flex items-center justify-center text-gray-500">
-                    No trend data available
-                  </div>
-                ) : (
-                  <ResponsiveContainer width="100%" height="100%">
-                    <AreaChart data={trendTimeline} margin={{ top: 20, right: 30, left: 0, bottom: 0 }}>
-                      <defs>
-                        <linearGradient id="colorTeal" x1="0" y1="0" x2="0" y2="1">
-                          <stop offset="5%" stopColor="#00CEC9" stopOpacity={0.3} />
-                          <stop offset="95%" stopColor="#00CEC9" stopOpacity={0} />
-                        </linearGradient>
-                      </defs>
-                      <CartesianGrid strokeDasharray="3 3" stroke="#E8E8E8" vertical={false} />
-                      <XAxis
-                        dataKey="date"
-                        tick={{ fontSize: 14, fill: '#666' }}
-                        stroke="#666666"
-                        dy={10}
-                      />
-                      <YAxis
-                        tickFormatter={(value) => `${value / 1000}k`}
-                        tick={{ fontSize: 14, fill: '#666' }}
-                        stroke="#666666"
-                        domain={[0, 'auto']}
-                        dx={-10}
-                      />
-                      <Tooltip
-                        contentStyle={{
-                          backgroundColor: 'white',
-                          border: '2px solid #E8E8E8',
-                          borderRadius: '12px',
-                          fontSize: '14px',
-                          padding: '12px',
-                          boxShadow: '0 4px 12px rgba(0,0,0,0.1)',
-                        }}
-                        formatter={(value: number | undefined) =>
-                          value !== undefined ? [`${value.toLocaleString()}`, 'Rejected'] : ['', '']
-                        }
-                      />
-                      <Area
-                        type="monotone"
-                        dataKey="rejected"
-                        stroke="#00CEC9"
-                        strokeWidth={3}
-                        fillOpacity={1}
-                        fill="url(#colorTeal)"
-                        activeDot={{ r: 6, strokeWidth: 2, fill: 'white' }}
-                      />
-                    </AreaChart>
-                  </ResponsiveContainer>
-                )}
-              </div>
-            </CardContent>
-          </Card>
+        {/* Charts Row - Only show if data exists */}
+        {hasData && (
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
+            {/* Trend Chart */}
+            <Card className="shadow-sm">
+              <CardHeader className="flex-row items-center justify-between pb-2">
+                <div className="flex-1">
+                  <CardTitle className="text-xl font-bold">
+                    {rejectionTrend?.title || 'Rejection Trend Over Time'}
+                  </CardTitle>
+                </div>
+              </CardHeader>
+              <CardContent>
+                <div className="h-80">
+                  {isStatsLoading ? (
+                    <div className="h-full flex items-center justify-center">
+                      <Loader2 className="w-8 h-8 animate-spin text-primary" />
+                    </div>
+                  ) : trendChartData.length === 0 ? (
+                    <div className="h-full flex items-center justify-center text-gray-500">
+                      No trend data available
+                    </div>
+                  ) : (
+                    <ResponsiveContainer width="100%" height="100%">
+                      <AreaChart data={trendChartData} margin={{ top: 20, right: 30, left: 0, bottom: 0 }}>
+                        <defs>
+                          <linearGradient id="colorTeal" x1="0" y1="0" x2="0" y2="1">
+                            <stop offset="5%" stopColor="#00CEC9" stopOpacity={0.3} />
+                            <stop offset="95%" stopColor="#00CEC9" stopOpacity={0} />
+                          </linearGradient>
+                        </defs>
+                        <CartesianGrid strokeDasharray="3 3" stroke="#E8E8E8" vertical={false} />
+                        <XAxis
+                          dataKey="date"
+                          tick={{ fontSize: 14, fill: '#666' }}
+                          stroke="#666666"
+                          dy={10}
+                        />
+                        <YAxis
+                          tickFormatter={(value) => `${value}%`}
+                          tick={{ fontSize: 14, fill: '#666' }}
+                          stroke="#666666"
+                          domain={[0, 'auto']}
+                          dx={-10}
+                        />
+                        <Tooltip
+                          contentStyle={{
+                            backgroundColor: 'white',
+                            border: '2px solid #E8E8E8',
+                            borderRadius: '12px',
+                            fontSize: '14px',
+                            padding: '12px',
+                            boxShadow: '0 4px 12px rgba(0,0,0,0.1)',
+                          }}
+                          formatter={(value: number | undefined) =>
+                            value !== undefined ? [`${value.toFixed(2)}%`, 'Rejection Rate'] : ['', '']
+                          }
+                        />
+                        <Area
+                          type="monotone"
+                          dataKey="rejectionRate"
+                          stroke="#00CEC9"
+                          strokeWidth={3}
+                          fillOpacity={1}
+                          fill="url(#colorTeal)"
+                          activeDot={{ r: 6, strokeWidth: 2, fill: 'white' }}
+                        />
+                      </AreaChart>
+                    </ResponsiveContainer>
+                  )}
+                </div>
+              </CardContent>
+            </Card>
 
-          {/* Category Bar Chart */}
-          <Card className="shadow-sm">
-            <CardHeader className="flex-row items-center justify-between pb-2">
-              <div className="flex-1">
-                <CardTitle className="text-xl font-bold">Rejection by Category</CardTitle>
-                <select 
-                  className="mt-2 px-3 py-1 text-sm border border-gray-300 rounded-md bg-white"
-                  value={period}
-                  onChange={(e) => setPeriod(e.target.value)}
-                >
-                  <option value="7d">Last 7 Days</option>
-                  <option value="30d">Last 30 Days</option>
-                  <option value="90d">Last 90 Days</option>
-                </select>
-              </div>
-            </CardHeader>
-            <CardContent>
-              <div className="h-80">
-                {isParetoLoading ? (
-                  <div className="h-full flex items-center justify-center">
-                    <Loader2 className="w-8 h-8 animate-spin text-primary" />
-                  </div>
-                ) : paretoDefects.length === 0 ? (
-                  <div className="h-full flex items-center justify-center text-gray-500">
-                    No defect data available
-                  </div>
-                ) : (
-                  <ResponsiveContainer width="100%" height="100%">
-                    <BarChart data={paretoDefects.slice(0, 7)} margin={{ top: 20, right: 30, left: 0, bottom: 60 }}>
-                      <CartesianGrid strokeDasharray="3 3" stroke="#E8E8E8" vertical={false} />
-                      <XAxis
-                        dataKey="type"
-                        tick={{ fontSize: 12, fill: '#666' }}
-                        stroke="#666666"
-                        dy={10}
-                        angle={-45}
-                        textAnchor="end"
-                        height={80}
-                      />
-                      <YAxis
-                        tickFormatter={(value) => `${value}`}
-                        tick={{ fontSize: 14, fill: '#666' }}
-                        stroke="#666666"
-                        domain={[0, 'auto']}
-                        dx={-10}
-                      />
-                      <Tooltip
-                        cursor={{ fill: '#f5f5f5' }}
-                        contentStyle={{
-                          backgroundColor: 'white',
-                          border: '2px solid #E8E8E8',
-                          borderRadius: '12px',
-                          fontSize: '14px',
-                          padding: '12px',
-                          boxShadow: '0 4px 12px rgba(0,0,0,0.1)',
-                        }}
-                      />
-                      <Bar dataKey="count" fill="#00CEC9" radius={[8, 8, 0, 0]} barSize={30} />
-                    </BarChart>
-                  </ResponsiveContainer>
-                )}
-              </div>
-            </CardContent>
-          </Card>
-        </div>
+            {/* Pareto Bar Chart */}
+            <Card className="shadow-sm">
+              <CardHeader className="flex-row items-center justify-between pb-2">
+                <div className="flex-1">
+                  <CardTitle className="text-xl font-bold">
+                    {defectPareto?.title || 'Defect Pareto Analysis'}
+                  </CardTitle>
+                </div>
+              </CardHeader>
+              <CardContent>
+                <div className="h-80">
+                  {isStatsLoading ? (
+                    <div className="h-full flex items-center justify-center">
+                      <Loader2 className="w-8 h-8 animate-spin text-primary" />
+                    </div>
+                  ) : paretoChartData.length === 0 ? (
+                    <div className="h-full flex items-center justify-center text-gray-500">
+                      No defect data available
+                    </div>
+                  ) : (
+                    <ResponsiveContainer width="100%" height="100%">
+                      <BarChart data={paretoChartData.slice(0, 7)} margin={{ top: 20, right: 30, left: 0, bottom: 60 }}>
+                        <CartesianGrid strokeDasharray="3 3" stroke="#E8E8E8" vertical={false} />
+                        <XAxis
+                          dataKey="type"
+                          tick={{ fontSize: 12, fill: '#666' }}
+                          stroke="#666666"
+                          dy={10}
+                          angle={-45}
+                          textAnchor="end"
+                          height={80}
+                        />
+                        <YAxis
+                          tickFormatter={(value) => `${value}`}
+                          tick={{ fontSize: 14, fill: '#666' }}
+                          stroke="#666666"
+                          domain={[0, 'auto']}
+                          dx={-10}
+                        />
+                        <Tooltip
+                          cursor={{ fill: '#f5f5f5' }}
+                          contentStyle={{
+                            backgroundColor: 'white',
+                            border: '2px solid #E8E8E8',
+                            borderRadius: '12px',
+                            fontSize: '14px',
+                            padding: '12px',
+                            boxShadow: '0 4px 12px rgba(0,0,0,0.1)',
+                          }}
+                        />
+                        <Bar dataKey="count" fill="#00CEC9" radius={[8, 8, 0, 0]} barSize={30} />
+                      </BarChart>
+                    </ResponsiveContainer>
+                  )}
+                </div>
+              </CardContent>
+            </Card>
+          </div>
+        )}
 
         {/* AI Summary Card */}
-        {kpis?.aiSummary && (
+        {aiSummary && (
           <Card className="shadow-sm mb-8">
             <CardHeader>
               <CardTitle className="text-xl font-bold flex items-center gap-2">
@@ -324,72 +308,57 @@ export default function DashboardPage() {
               </CardTitle>
             </CardHeader>
             <CardContent>
-              <div className={`p-4 rounded-lg border-l-4 ${
-                kpis.aiSummary.sentiment === 'concerning' ? 'bg-orange-50 border-orange-400' :
-                kpis.aiSummary.sentiment === 'critical' ? 'bg-red-50 border-red-400' :
-                kpis.aiSummary.sentiment === 'positive' ? 'bg-green-50 border-green-400' :
-                'bg-blue-50 border-blue-400'
-              }`}>
-                <p className="text-lg text-gray-800">{kpis.aiSummary.text}</p>
-                {kpis.aiSummary.actionItems && kpis.aiSummary.actionItems.length > 0 && (
-                  <div className="mt-4">
-                    <h4 className="font-semibold text-gray-700 mb-2">Recommended Actions:</h4>
-                    <ul className="list-disc list-inside space-y-1">
-                      {kpis.aiSummary.actionItems.map((item, idx) => (
-                        <li key={idx} className="text-gray-600">{item}</li>
-                      ))}
-                    </ul>
-                  </div>
-                )}
+              <div className={`p-4 rounded-lg border-l-4 ${aiSummary.includes('⚠️') ? 'bg-orange-50 border-orange-400' :
+                  aiSummary.includes('✓') ? 'bg-green-50 border-green-400' :
+                    'bg-blue-50 border-blue-400'
+                }`}>
+                <p className="text-lg text-gray-800">{aiSummary}</p>
               </div>
             </CardContent>
           </Card>
         )}
 
-        {/* Summary Table */}
-        <Card className="shadow-sm">
-          <CardHeader>
-            <CardTitle className="text-xl font-bold">Recent Activity</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="overflow-x-auto">
-              {isOverviewLoading ? (
-                <div className="py-8 flex items-center justify-center">
-                  <Loader2 className="w-8 h-8 animate-spin text-primary" />
-                </div>
-              ) : kpis?.highRiskBatches?.batches?.length === 0 ? (
-                <div className="py-8 text-center text-gray-500">
-                  No high-risk batches at this time
-                </div>
-              ) : (
+        {/* Stage KPIs Table */}
+        {hasData && stageKpis.length > 0 && (
+          <Card className="shadow-sm">
+            <CardHeader>
+              <CardTitle className="text-xl font-bold">Stage Performance</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="overflow-x-auto">
                 <table className="w-full">
                   <thead>
                     <tr className="border-b border-gray-200">
-                      <th className="text-left py-4 px-4 font-bold text-base">Batch Number</th>
-                      <th className="text-left py-4 px-4 font-bold text-base">Rejection Rate</th>
-                      <th className="text-left py-4 px-4 font-bold text-base">Production Date</th>
-                      <th className="text-left py-4 px-4 font-bold text-base">Risk Level</th>
+                      <th className="text-left py-4 px-4 font-bold text-base">Stage</th>
+                      <th className="text-right py-4 px-4 font-bold text-base">Inspected</th>
+                      <th className="text-right py-4 px-4 font-bold text-base">Rejected</th>
+                      <th className="text-right py-4 px-4 font-bold text-base">Rejection Rate</th>
+                      <th className="text-right py-4 px-4 font-bold text-base">Contribution</th>
                     </tr>
                   </thead>
                   <tbody>
-                    {kpis?.highRiskBatches?.batches?.map((batch, idx) => (
-                      <tr key={batch.id} className={idx % 2 === 0 ? 'bg-primary/5' : 'bg-white'}>
-                        <td className="py-4 px-4 font-medium">{batch.batchNumber}</td>
-                        <td className="py-4 px-4">{batch.rejectionRate.toFixed(1)}%</td>
-                        <td className="py-4 px-4">{new Date(batch.productionDate).toLocaleDateString()}</td>
-                        <td className="py-4 px-4">
-                          <span className="px-3 py-1 rounded-full text-sm font-medium bg-red-100 text-red-700">
-                            High Risk
+                    {stageKpis.map((stage, idx) => (
+                      <tr key={stage.stage_code} className={idx % 2 === 0 ? 'bg-primary/5' : 'bg-white'}>
+                        <td className="py-4 px-4 font-medium">{stage.stage_name}</td>
+                        <td className="py-4 px-4 text-right">{stage.inspected.toLocaleString()}</td>
+                        <td className="py-4 px-4 text-right">{stage.rejected.toLocaleString()}</td>
+                        <td className="py-4 px-4 text-right">
+                          <span className={`px-2 py-1 rounded-full text-sm font-medium ${stage.rejection_rate > 10 ? 'bg-red-100 text-red-700' :
+                              stage.rejection_rate > 5 ? 'bg-amber-100 text-amber-700' :
+                                'bg-green-100 text-green-700'
+                            }`}>
+                            {stage.rejection_rate.toFixed(1)}%
                           </span>
                         </td>
+                        <td className="py-4 px-4 text-right">{stage.contribution_percent.toFixed(1)}%</td>
                       </tr>
                     ))}
                   </tbody>
                 </table>
-              )}
-            </div>
-          </CardContent>
-        </Card>
+              </div>
+            </CardContent>
+          </Card>
+        )}
       </div>
     </>
   );
@@ -418,9 +387,8 @@ function KPICard({ title, value, change, changeDirection, subtitle, progressValu
           <p className="text-4xl font-bold text-black tracking-tight">{value}</p>
           {change !== undefined && (
             <span
-              className={`text-lg font-bold ${
-                changeDirection === 'down' ? 'text-green-600' : 'text-red-600'
-              }`}
+              className={`text-lg font-bold ${changeDirection === 'down' ? 'text-green-600' : 'text-red-600'
+                }`}
             >
               {changeDirection === 'up' ? '↑' : '↓'} {Math.abs(change).toFixed(1)}%
             </span>

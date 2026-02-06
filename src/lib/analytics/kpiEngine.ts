@@ -297,7 +297,7 @@ function getMockTrendData(startDate: Date, endDate: Date): TrendData {
     rejectionRate: number;
   }> = [];
 
-  let currentDate = new Date(startDate);
+  const currentDate = new Date(startDate);
   while (currentDate <= endDate) {
     const produced = 400 + Math.floor(Math.random() * 200);
     const rejected = Math.floor(produced * (0.08 + Math.random() * 0.08));
