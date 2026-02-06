@@ -5,8 +5,8 @@
 
 import { GoogleGenerativeAI, HarmCategory, HarmBlockThreshold } from '@google/generative-ai';
 import crypto from 'crypto';
-import { supabaseAdmin } from '../db/client';
-import type { AIInsight, InsightType, Sentiment } from '../db/types';
+import { supabaseAdmin, isConfigured } from '../db/client';
+import type { AIInsight, InsightType, Sentiment } from '../db/schema.types';
 
 // ============================================================================
 // CONFIGURATION
@@ -21,7 +21,7 @@ if (!GEMINI_API_KEY && typeof window === 'undefined') {
 const genAI = new GoogleGenerativeAI(GEMINI_API_KEY);
 
 // Model configuration
-const MODEL_NAME = 'gemini-2.0-flash-exp'; // Use Gemini 2.5 Flash for speed and cost
+const MODEL_NAME = 'gemini-2.0-flash-exp'; // Use Gemini 2.0 Flash for speed and cost
 const GENERATION_CONFIG = {
   temperature: 0.7, // Balanced creativity
   topP: 0.95,
@@ -58,9 +58,9 @@ const CACHE_TTL_HOURS = 1;
 export const PROMPTS = {
   healthSummary: (data: {
     rejectionRate: number;
-    trend: 'up' | 'down' | 'stable';
+    trend: 'improving' | 'worsening' | 'stable';
     rejectedCount: number;
-    highRiskBatches: Array<{ batchNumber: string; rejectionRate: number }>;
+    highRiskDays: Array<{ date: string; rejectionRate: number; produced: number }>;
     topDefect: { type: string; percentage: number };
   }) => `
 You are an AI assistant for a manufacturing quality manager with weak eyesight who needs clear, actionable insights.
@@ -70,15 +70,15 @@ Analyze this rejection data and provide a concise executive summary (3-4 sentenc
 **Current Status:**
 - Overall rejection rate: ${data.rejectionRate}% (${data.trend} from last period)
 - Total rejected units: ${data.rejectedCount}
-- High-risk batches: ${data.highRiskBatches.length}
+- High-risk days (rate > 15%): ${data.highRiskDays.length}
 - Top defect: ${data.topDefect.type} (${data.topDefect.percentage}%)
 
-**High-Risk Batches:**
-${data.highRiskBatches.map(b => `- ${b.batchNumber}: ${b.rejectionRate}% rejection`).join('\n')}
+**High-Risk Days (Recent):**
+${data.highRiskDays.slice(0, 5).map(d => `- ${d.date}: ${d.rejectionRate}% rejection (${d.produced} produced)`).join('\n')}
 
 **Instructions:**
 1. Start with overall health assessment (improving/worsening/stable)
-2. Identify the main problem area
+2. Identify the main problem area (specific dates or defect type)
 3. List urgent action items if any (use ⚠️ emoji for urgent items)
 4. Use simple, non-technical language
 5. Be direct and actionable
@@ -92,8 +92,7 @@ ${data.highRiskBatches.map(b => `- ${b.batchNumber}: ${b.rejectionRate}% rejecti
   rootCauseAnalysis: (data: {
     defectType: string;
     trend: Array<{ date: string; count: number }>;
-    affectedBatches: Array<{ batchNumber: string; quantity: number }>;
-    suppliers: Array<{ name: string; defectRate: number }>;
+    recentHighDefectDays: Array<{ date: string; quantity: number }>;
     stages: Array<{ stage: string; defectCount: number }>;
   }) => `
 You are a manufacturing quality expert analyzing defect patterns.
@@ -103,13 +102,10 @@ Analyze this defect data and suggest probable root causes:
 **Defect Type:** ${data.defectType}
 
 **Recent Trend:**
-${data.trend.map(t => `${t.date}: ${t.count} defects`).join('\n')}
+${data.trend.slice(-5).map(t => `${t.date}: ${t.count} defects`).join('\n')}
 
-**Affected Batches (Top 5):**
-${data.affectedBatches.slice(0, 5).map(b => `- ${b.batchNumber}: ${b.quantity} defects`).join('\n')}
-
-**Supplier Correlation:**
-${data.suppliers.map(s => `- ${s.name}: ${s.defectRate}% defect rate`).join('\n')}
+**Peak Defect Days:**
+${data.recentHighDefectDays.slice(0, 5).map(d => `- ${d.date}: ${d.quantity} defects`).join('\n')}
 
 **Stage Breakdown:**
 ${data.stages.map(s => `- ${s.stage}: ${s.defectCount} defects`).join('\n')}
@@ -121,39 +117,6 @@ ${data.stages.map(s => `- ${s.stage}: ${s.defectCount} defects`).join('\n')}
 
 **Format:**
 Use clear headings and bullet points. Be specific and actionable.
-`,
-
-  predictiveForecast: (data: {
-    batchNumber: string;
-    currentRejectionRate: number;
-    inspectionHistory: Array<{ stage: string; failureRate: number }>;
-    similarBatches: Array<{ batchNumber: string; finalRejectionRate: number }>;
-  }) => `
-You are a predictive analytics assistant for manufacturing quality control.
-
-Predict the final risk level for this batch based on inspection history:
-
-**Batch:** ${data.batchNumber}
-**Current Rejection Rate:** ${data.currentRejectionRate}%
-
-**Inspection History:**
-${data.inspectionHistory.map(i => `- ${i.stage}: ${i.failureRate}% failure rate`).join('\n')}
-
-**Historical Comparison (similar batches):**
-${data.similarBatches.map(b => `- ${b.batchNumber}: ended at ${b.finalRejectionRate}%`).join('\n')}
-
-**Risk Thresholds:**
-- Normal: < 8%
-- Watch: 8-15%
-- High Risk: > 15%
-
-**Predict:**
-1. **Final Risk Level:** Normal / Watch / High Risk
-2. **Confidence Level:** 0-100%
-3. **Reasoning:** Why this prediction (2-3 sentences)
-4. **Recommended Actions:** What to do now (2-3 bullet points)
-
-Use historical patterns to make your prediction. Be specific about confidence level.
 `,
 
   anomalyDetection: (data: {
@@ -233,9 +196,9 @@ export async function generateInsight(
  */
 export async function generateHealthSummary(data: {
   rejectionRate: number;
-  trend: 'up' | 'down' | 'stable';
+  trend: 'improving' | 'worsening' | 'stable';
   rejectedCount: number;
-  highRiskBatches: Array<{ batchNumber: string; rejectionRate: number }>;
+  highRiskDays: Array<{ date: string; rejectionRate: number; produced: number }>;
   topDefect: { type: string; percentage: number };
 }): Promise<AIInsight> {
   const prompt = PROMPTS.healthSummary(data);
@@ -248,25 +211,11 @@ export async function generateHealthSummary(data: {
 export async function generateRootCauseAnalysis(data: {
   defectType: string;
   trend: Array<{ date: string; count: number }>;
-  affectedBatches: Array<{ batchNumber: string; quantity: number }>;
-  suppliers: Array<{ name: string; defectRate: number }>;
+  recentHighDefectDays: Array<{ date: string; quantity: number }>;
   stages: Array<{ stage: string; defectCount: number }>;
 }): Promise<AIInsight> {
   const prompt = PROMPTS.rootCauseAnalysis(data);
   return generateInsight('root_cause', data, prompt);
-}
-
-/**
- * Generate predictive forecast for batch
- */
-export async function generatePredictiveForecast(data: {
-  batchNumber: string;
-  currentRejectionRate: number;
-  inspectionHistory: Array<{ stage: string; failureRate: number }>;
-  similarBatches: Array<{ batchNumber: string; finalRejectionRate: number }>;
-}): Promise<AIInsight> {
-  const prompt = PROMPTS.predictiveForecast(data);
-  return generateInsight('prediction', data, prompt);
 }
 
 /**
@@ -302,6 +251,8 @@ async function getCachedInsight(
   type: InsightType,
   contextData: Record<string, unknown>
 ): Promise<AIInsight | null> {
+  if (!isConfigured) return null; // Skip cache if Supabase not configured
+
   const cacheKey = generateCacheKey(type, contextData);
 
   const { data, error } = await supabaseAdmin
@@ -334,6 +285,27 @@ async function cacheInsight(
   const expiresAt = new Date();
   expiresAt.setHours(expiresAt.getHours() + CACHE_TTL_HOURS);
 
+  // Return a non-persisted object if no DB configured
+  if (!isConfigured) {
+    return {
+      id: crypto.randomUUID(),
+      insight_type: type,
+      context_hash: cacheKey,
+      context_data: contextData,
+      insight_text: text,
+      sentiment,
+      confidence_score: confidence,
+      action_items: actionItems,
+      generated_at: new Date().toISOString(),
+      expires_at: expiresAt.toISOString(),
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+      metadata: {},
+      access_count: 0,
+      last_accessed_at: null,
+    } as AIInsight;
+  }
+
   const { data, error } = await supabaseAdmin
     .from('ai_insights')
     .insert({
@@ -350,7 +322,25 @@ async function cacheInsight(
     .single();
 
   if (error) {
-    throw new Error(`Failed to cache AI insight: ${error.message}`);
+    console.error('Failed to cache AI insight, returning un-cached result:', error.message);
+    // Fallback to un-cached object if insert fails
+    return {
+      id: crypto.randomUUID(),
+      insight_type: type,
+      context_hash: cacheKey,
+      context_data: contextData,
+      insight_text: text,
+      sentiment,
+      confidence_score: confidence,
+      action_items: actionItems,
+      generated_at: new Date().toISOString(),
+      expires_at: expiresAt.toISOString(),
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+      metadata: {},
+      access_count: 0,
+      last_accessed_at: null,
+    } as AIInsight;
   }
 
   return data as AIInsight;
@@ -360,10 +350,11 @@ async function cacheInsight(
  * Increment access count for cached insight
  */
 async function incrementInsightAccessCount(id: string): Promise<void> {
+  if (!isConfigured) return; // Skip if no DB
+
   await supabaseAdmin
     .from('ai_insights')
     .update({
-      access_count: supabaseAdmin.rpc('increment', { row_id: id }),
       last_accessed_at: new Date().toISOString(),
     })
     .eq('id', id);
@@ -415,7 +406,7 @@ function extractActionItems(text: string): string[] {
 
   // Look for bullet points with action verbs
   const lines = text.split('\n');
-  const actionVerbs = ['review', 'inspect', 'check', 'investigate', 'monitor', 'contact', 'verify'];
+  const actionVerbs = ['review', 'inspect', 'check', 'investigate', 'monitor', 'contact', 'verify', 'ensure'];
 
   for (const line of lines) {
     const trimmed = line.trim();
@@ -454,20 +445,6 @@ function calculateConfidence(text: string): number {
 
   // Clamp between 0 and 1
   return Math.max(0, Math.min(1, confidence));
-}
-
-/**
- * Test Gemini API connection
- */
-export async function testGeminiConnection(): Promise<boolean> {
-  try {
-    const model = genAI.getGenerativeModel({ model: MODEL_NAME });
-    const result = await model.generateContent('Hello');
-    return !!result.response.text();
-  } catch (error) {
-    console.error('Gemini API test failed:', error);
-    return false;
-  }
 }
 
 // ============================================================================

@@ -19,7 +19,9 @@ import {
   AlertTriangle,
   Loader2,
   BarChart3,
+  Upload,
 } from 'lucide-react';
+import Link from 'next/link';
 import {
   AreaChart,
   Area,
@@ -36,26 +38,52 @@ import { formatDate, formatPercentage } from '@/lib/utils';
 
 const fetcher = (url: string) => fetch(url).then((res) => res.json());
 
+// New API types
 interface TrendDataPoint {
   date: string;
   produced: number;
   rejected: number;
-  rejectionRate: number;
+  rejection_rate: number;
+  risk_level: 'normal' | 'watch' | 'high_risk';
 }
 
-interface TrendSummary {
-  avgRejectionRate: number;
-  totalProduced: number;
-  totalRejected: number;
-  periodStart: string;
-  periodEnd: string;
+interface TrendResponse {
+  timeline: TrendDataPoint[];
+  summary: {
+    avg_rejection_rate: number;
+    total_produced: number;
+    total_rejected: number;
+    data_points: number;
+    missing_days: number;
+  };
+}
+
+interface DataQualityResponse {
+  hasData: boolean;
+  counts: {
+    productionDays: number;
+    stageDays: number;
+    defectRecords: number;
+  };
+  lastUpload: string | null;
+  status: 'ready' | 'empty';
+  message: string;
 }
 
 export default function TrendsPage() {
   const [period, setPeriod] = useState('30d');
   
-  const { data, isLoading, error, mutate } = useSWR(
-    `/api/analytics/trends?period=${period}`,
+  // Check data availability first
+  const { data: qualityData, isLoading: isQualityLoading } = useSWR<
+    { success: boolean; data: DataQualityResponse }
+  >('/api/analytics/data-quality', fetcher);
+
+  const hasData = qualityData?.data?.hasData || false;
+
+  const { data, isLoading, error, mutate } = useSWR<
+    { success: boolean; data: TrendResponse }
+  >(
+    hasData ? `/api/analytics/trends?period=${period}` : null,
     fetcher,
     {
       refreshInterval: 60000,
@@ -63,7 +91,7 @@ export default function TrendsPage() {
   );
 
   const timeline: TrendDataPoint[] = data?.data?.timeline || [];
-  const summary: TrendSummary | null = data?.data?.summary || null;
+  const summary = data?.data?.summary || null;
   
   // Calculate trend direction from data
   const calculateTrend = () => {
@@ -71,8 +99,8 @@ export default function TrendsPage() {
     const firstHalf = timeline.slice(0, Math.floor(timeline.length / 2));
     const secondHalf = timeline.slice(Math.floor(timeline.length / 2));
     
-    const firstAvg = firstHalf.reduce((sum, t) => sum + t.rejectionRate, 0) / firstHalf.length;
-    const secondAvg = secondHalf.reduce((sum, t) => sum + t.rejectionRate, 0) / secondHalf.length;
+    const firstAvg = firstHalf.reduce((sum, t) => sum + t.rejection_rate, 0) / firstHalf.length;
+    const secondAvg = secondHalf.reduce((sum, t) => sum + t.rejection_rate, 0) / secondHalf.length;
     
     const change = secondAvg - firstAvg;
     if (Math.abs(change) < 0.5) return { trend: 'stable' as const, change: 0 };
@@ -80,7 +108,41 @@ export default function TrendsPage() {
   };
   
   const trendInfo = calculateTrend();
-  const currentRate = timeline.length > 0 ? timeline[timeline.length - 1].rejectionRate : 0;
+  const currentRate = timeline.length > 0 ? timeline[timeline.length - 1].rejection_rate : 0;
+
+  // Show empty state if no data
+  if (!isQualityLoading && !hasData) {
+    return (
+      <>
+        <DashboardHeader
+          title="Rejection Trends"
+          description="Analyze quality performance over time"
+        />
+        <div className="flex-1 p-8 overflow-auto bg-gray-50">
+          <div className="max-w-2xl mx-auto mt-16">
+            <Card className="shadow-lg">
+              <CardContent className="p-12 text-center">
+                <div className="w-20 h-20 mx-auto mb-6 rounded-full bg-gray-100 flex items-center justify-center">
+                  <Upload className="w-10 h-10 text-gray-400" />
+                </div>
+                <h2 className="text-2xl font-bold text-gray-800 mb-3">No Trend Data Available</h2>
+                <p className="text-gray-600 mb-6">
+                  Upload Excel files to see rejection trends over time.
+                </p>
+                <Link
+                  href="/settings/upload"
+                  className="inline-flex items-center gap-2 px-6 py-3 bg-primary text-white rounded-lg font-medium hover:bg-primary/90 transition-colors"
+                >
+                  <Upload className="w-5 h-5" />
+                  Upload Files
+                </Link>
+              </CardContent>
+            </Card>
+          </div>
+        </div>
+      </>
+    );
+  }
 
   return (
     <>
@@ -170,7 +232,7 @@ export default function TrendsPage() {
                 <CardContent className="p-6">
                   <p className="text-lg font-bold text-text-secondary mb-2">Average Rate</p>
                   <p className="text-5xl font-extrabold text-text-tertiary">
-                    {formatPercentage(summary?.avgRejectionRate || 0)}
+                    {formatPercentage(summary?.avg_rejection_rate || 0)}
                   </p>
                 </CardContent>
               </Card>
@@ -232,7 +294,7 @@ export default function TrendsPage() {
                       boxShadow: '0 4px 12px rgba(0,0,0,0.1)',
                     }}
                     formatter={(value, name) => {
-                      if (name === 'rejectionRate') return [`${value}%`, 'Rejection Rate'];
+                      if (name === 'rejection_rate') return [`${value}%`, 'Rejection Rate'];
                       return [Number(value).toLocaleString(), name === 'produced' ? 'Produced' : 'Rejected'];
                     }}
                     labelFormatter={(date) => formatDate(date)}
@@ -244,7 +306,7 @@ export default function TrendsPage() {
                   <Area
                     yAxisId="left"
                     type="monotone"
-                    dataKey="rejectionRate"
+                    dataKey="rejection_rate"
                     stroke="#0066CC"
                     strokeWidth={4}
                     fillOpacity={1}

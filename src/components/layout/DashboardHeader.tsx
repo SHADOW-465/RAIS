@@ -10,7 +10,12 @@ interface DashboardHeaderProps {
   actions?: React.ReactNode;
 }
 
+import { useSession } from '@/contexts/SessionContext';
+import { Save, RefreshCw } from 'lucide-react';
+
 export function DashboardHeader({ title, description, actions }: DashboardHeaderProps) {
+  const { saveSession, resetSession, isSaving } = useSession();
+
   return (
     <header className="bg-white border-b-2 border-gray-200 px-8 py-4">
       <div className="flex items-center justify-between">
@@ -35,6 +40,14 @@ export function DashboardHeader({ title, description, actions }: DashboardHeader
 
         {/* Right: Actions + Icons + User */}
         <div className="flex items-center gap-4">
+          <div className="flex items-center gap-2 mr-2">
+            <Button variant="outline" size="sm" onClick={resetSession} className="text-red-500 border-red-200 hover:bg-red-50" title="Clear current session data">
+              <RefreshCw className="w-4 h-4 mr-2" /> Reset
+            </Button>
+            <Button size="sm" onClick={saveSession} disabled={isSaving} className="bg-green-600 hover:bg-green-700 text-white" title="Commit session data to database">
+              <Save className="w-4 h-4 mr-2" /> {isSaving ? 'Saving...' : 'Save Stats'}
+            </Button>
+          </div>
           {actions}
 
           {/* Notification Bell */}

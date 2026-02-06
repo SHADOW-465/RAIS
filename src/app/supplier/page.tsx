@@ -148,7 +148,7 @@ export default function SupplierPage() {
           <Card>
             <CardContent className="p-6">
               <p className="text-base font-medium text-text-secondary mb-2">Avg. Rejection Rate</p>
-              <p className="text-4xl font-bold text-warning">{formatPercentage(avgRejectionRate)}</p>
+              <p className="text-4xl font-bold text-warning">{formatPercentage(avgRejectionRate || 0)}</p>
               <p className="text-base text-text-secondary mt-2">across all suppliers</p>
             </CardContent>
           </Card>

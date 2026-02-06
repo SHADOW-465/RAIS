@@ -1,1751 +1,468 @@
-# RAIS Dashboard Complete Redesign Plan
+# RAIS Complete System Redesign Plan v2.0
 
-**Generated:** 2026-02-03  
-**Status:** Architecture & Implementation Blueprint  
-**Objective:** Build production-ready manufacturing rejection intelligence dashboard from scratch
-
----
-
-## 🔍 Current State Analysis
-
-### Critical Findings
-1. **100% Stub Implementation**: All pages return `<div>Page Content</div>`
-2. **No Backend**: All API routes return `501 Not Implemented`
-3. **Empty Infrastructure**: `src/lib/` and `src/components/` directories are empty
-4. **Tech Stack Present**: Next.js 16, React 19, Supabase, Gemini AI, Recharts, SWR, Zustand installed
-5. **Environment Configured**: Supabase and Gemini API keys present
-
-### What Needs Building
-Everything. This is a greenfield project despite the directory structure.
+**Date:** 2026-02-04  
+**Status:** ACTIVE - Greenfield Rebuild  
+**Mandate:** Zero tolerance for partial delivery
 
 ---
 
-## 🎯 Design Constraints (Non-Negotiable)
+## 1. CRITICAL ANALYSIS: What's Wrong With Current System
 
-### User Profile: General Manager
-- **Age**: 50-65 years
-- **Vision**: Weak eyesight (requires WCAG AAA compliance)
-- **Tech Proficiency**: Limited
-- **Time**: Extremely limited (needs 10-second insights)
-- **Goal**: Prevent batch scrapping, identify risks early
+### 1.1 Core Problems Identified
 
-### UX Principles
-1. **Summary-First**: No raw data by default (drill-down on demand)
-2. **High Contrast**: WCAG AAA - minimum 7:1 ratio for normal text, 4.5:1 for large text
-3. **Large Typography**: Minimum 18px for body text, 24px+ for headings
-4. **One Question Per Page**: Each page answers one business question
-5. **Executive Dashboard Pattern**: KPI cards → Trends → Drill-down
+| Problem | Evidence | Impact |
+|---------|----------|--------|
+| **Mock Data Fallbacks** | `kpiEngine.ts` lines 162-202, 292-326, 412-429 | Dashboard shows fake data when DB fails |
+| **AI/Computation Boundary Violation** | Smart mapper directly affects KPI calculations | Non-auditable, non-deterministic results |
+| **Wrong Data Model** | Current schema focused on batches, not rejection events | Cannot answer "which stage contributes most?" |
+| **Missing Normalization Layer** | Direct Excel → DB transformation | Wide-format defects not properly pivoted |
+| **No Audit Trail** | No traceability from KPI back to source row | Cannot explain where numbers come from |
+| **Hardcoded Cost** | `COST_PER_REJECTED_UNIT = 365` in kpiEngine.ts | Not configurable, not from data |
+| **No Data Validation Pipeline** | Validation is permissive, allows bad data | Garbage in, garbage out |
 
----
+### 1.2 What Must Be Rebuilt
 
-## 🏗️ Architecture Design
-
-### Technology Stack Decisions
-
-#### Frontend
-```typescript
-// Component Library: shadcn/ui (Radix + Tailwind)
-// ✅ Fully accessible (WCAG AAA compliant)
-// ✅ Customizable
-// ✅ TypeScript-first
-// ✅ Next.js 14+ compatible
-
-// Visualization: Recharts
-// ✅ Already installed
-// ✅ Declarative API
-// ✅ Responsive
-// ❌ Limited accessibility (need custom wrappers)
-
-// State Management: Zustand (already installed)
-// ✅ Lightweight
-// ✅ TypeScript-friendly
-// ✅ No boilerplate
-
-// Data Fetching: SWR (already installed)
-// ✅ Optimistic updates
-// ✅ Auto revalidation
-// ✅ Cache management
-```
-
-#### Backend
-```typescript
-// Database: Supabase (PostgreSQL)
-// ✅ Already configured
-// ✅ Real-time subscriptions
-// ✅ Row-Level Security
-// ✅ Storage for Excel files
-
-// API: Next.js API Routes
-// ✅ Serverless
-// ✅ Type-safe with TypeScript
-// ✅ Edge runtime support
-
-// AI: Gemini 2.5 Flash
-// ✅ Fast inference (<1s)
-// ✅ 1M token context window
-// ✅ Structured output support
-// ✅ Cost-effective
-```
-
-#### Design System
-```css
-/* Color Palette (WCAG AAA Compliant) */
---color-bg-primary: #FFFFFF;      /* Background */
---color-text-primary: #000000;    /* 21:1 contrast */
---color-text-secondary: #333333;  /* 12.63:1 contrast */
-
---color-success: #006600;         /* 7.58:1 contrast on white */
---color-warning: #CC6600;         /* 4.52:1 contrast (large text only) */
---color-danger: #CC0000;          /* 5.9:1 contrast */
---color-info: #004080;            /* 8.59:1 contrast */
-
---color-accent: #0066CC;          /* Primary actions - 6.5:1 contrast */
---color-accent-hover: #004C99;    /* Hover state - 9.74:1 contrast */
-
-/* Typography Scale */
---font-size-xs: 14px;
---font-size-sm: 16px;
---font-size-base: 18px;           /* Body text minimum */
---font-size-lg: 20px;
---font-size-xl: 24px;             /* Headings minimum */
---font-size-2xl: 32px;
---font-size-3xl: 48px;            /* KPI values */
-
-/* Spacing (8px grid) */
---spacing-xs: 8px;
---spacing-sm: 16px;
---spacing-md: 24px;
---spacing-lg: 32px;
---spacing-xl: 48px;
---spacing-2xl: 64px;
-
-/* Font Weights */
---font-weight-normal: 400;
---font-weight-medium: 600;        /* For emphasis */
---font-weight-bold: 700;          /* KPIs, headings */
-```
+1. **Data Model** - Normalized schema that separates concerns
+2. **Ingestion Pipeline** - AI for interpretation only, deterministic transformation
+3. **KPI Engine** - Pure SQL-based, no fallbacks, no mock data
+4. **Audit System** - Every number traceable to source file + row
+5. **Validation** - Strict, fail-fast, with clear error messages
+6. **API Layer** - Clean contracts, no silent failures
+7. **UI** - Real data only, no fallbacks
 
 ---
 
-## 📊 Database Schema Design
+## 2. NORMALIZED DATA MODEL (TARGET STATE)
 
-### Core Tables
+### 2.1 New Schema (Migration 003)
 
 ```sql
--- Batches (Master data)
-CREATE TABLE batches (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  batch_number VARCHAR(50) UNIQUE NOT NULL,
-  product_code VARCHAR(50),
-  planned_quantity INTEGER NOT NULL,
-  produced_quantity INTEGER DEFAULT 0,
-  rejected_quantity INTEGER DEFAULT 0,
-  production_date DATE NOT NULL,
-  status VARCHAR(20) CHECK (status IN ('in_progress', 'completed', 'scrapped')),
-  risk_level VARCHAR(20) CHECK (risk_level IN ('normal', 'watch', 'high_risk')),
-  created_at TIMESTAMPTZ DEFAULT NOW(),
+-- ============================================================================
+-- RAIS v2.0 - Normalized Schema for Auditable Manufacturing Statistics
+-- ============================================================================
+
+-- Configuration table (no more hardcoded values)
+CREATE TABLE IF NOT EXISTS system_config (
+  key VARCHAR(100) PRIMARY KEY,
+  value JSONB NOT NULL,
+  description TEXT,
   updated_at TIMESTAMPTZ DEFAULT NOW()
 );
 
-CREATE INDEX idx_batches_date ON batches(production_date DESC);
-CREATE INDEX idx_batches_status ON batches(status);
-CREATE INDEX idx_batches_risk ON batches(risk_level);
+-- Insert default config
+INSERT INTO system_config (key, value, description) VALUES
+  ('cost_per_rejected_unit', '{"value": 365, "currency": "INR"}', 'Cost per rejected unit for financial calculations'),
+  ('risk_thresholds', '{"high": 15, "watch": 8}', 'Rejection rate thresholds for risk classification'),
+  ('upload_max_rows', '{"value": 50000}', 'Maximum rows per upload file')
+ON CONFLICT (key) DO NOTHING;
 
--- Inspection Records
-CREATE TABLE inspection_records (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  batch_id UUID REFERENCES batches(id) ON DELETE CASCADE,
-  inspection_stage VARCHAR(50) NOT NULL, -- 'assembly', 'visual', 'integrity', 'final'
-  inspector_name VARCHAR(100),
-  inspected_quantity INTEGER NOT NULL,
-  passed_quantity INTEGER NOT NULL,
-  failed_quantity INTEGER NOT NULL,
-  inspection_date TIMESTAMPTZ DEFAULT NOW(),
-  notes TEXT,
-  created_at TIMESTAMPTZ DEFAULT NOW()
+-- TIME DIMENSION (for aggregations)
+CREATE TABLE IF NOT EXISTS time_dimension (
+  date DATE PRIMARY KEY,
+  year INT GENERATED ALWAYS AS (EXTRACT(YEAR FROM date)) STORED,
+  month INT GENERATED ALWAYS AS (EXTRACT(MONTH FROM date)) STORED,
+  week INT GENERATED ALWAYS AS (EXTRACT(WEEK FROM date)) STORED,
+  day_of_week INT GENERATED ALWAYS AS (EXTRACT(DOW FROM date)) STORED,
+  quarter INT GENERATED ALWAYS AS (EXTRACT(QUARTER FROM date)) STORED
 );
 
-CREATE INDEX idx_inspection_batch ON inspection_records(batch_id);
-CREATE INDEX idx_inspection_date ON inspection_records(inspection_date DESC);
-CREATE INDEX idx_inspection_stage ON inspection_records(inspection_stage);
+-- Populate time dimension for 2 years
+INSERT INTO time_dimension (date)
+SELECT generate_series('2024-01-01'::date, '2026-12-31'::date, '1 day'::interval)::date
+ON CONFLICT DO NOTHING;
 
--- Defects (Rejection reasons)
-CREATE TABLE defects (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  inspection_id UUID REFERENCES inspection_records(id) ON DELETE CASCADE,
-  defect_type VARCHAR(100) NOT NULL, -- 'visual_defect', 'dimensional', 'functional', etc.
-  defect_code VARCHAR(20),
-  quantity INTEGER NOT NULL,
-  severity VARCHAR(20) CHECK (severity IN ('minor', 'major', 'critical')),
-  root_cause TEXT,
-  created_at TIMESTAMPTZ DEFAULT NOW()
-);
-
-CREATE INDEX idx_defects_inspection ON defects(inspection_id);
-CREATE INDEX idx_defects_type ON defects(defect_type);
-CREATE INDEX idx_defects_severity ON defects(severity);
-
--- Suppliers
-CREATE TABLE suppliers (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  supplier_code VARCHAR(50) UNIQUE NOT NULL,
-  supplier_name VARCHAR(200) NOT NULL,
-  contact_email VARCHAR(100),
-  contact_phone VARCHAR(20),
-  rating DECIMAL(3,2) CHECK (rating >= 0 AND rating <= 5),
-  created_at TIMESTAMPTZ DEFAULT NOW(),
-  updated_at TIMESTAMPTZ DEFAULT NOW()
-);
-
--- Supplier Batches (Many-to-Many)
-CREATE TABLE batch_suppliers (
-  batch_id UUID REFERENCES batches(id) ON DELETE CASCADE,
-  supplier_id UUID REFERENCES suppliers(id) ON DELETE CASCADE,
-  component_type VARCHAR(100),
-  PRIMARY KEY (batch_id, supplier_id, component_type)
-);
-
-CREATE INDEX idx_batch_suppliers_batch ON batch_suppliers(batch_id);
-CREATE INDEX idx_batch_suppliers_supplier ON batch_suppliers(supplier_id);
-
--- Upload History (Excel file metadata)
-CREATE TABLE upload_history (
+-- FILE UPLOAD LOG (audit trail root)
+CREATE TABLE IF NOT EXISTS file_upload_log (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   filename VARCHAR(255) NOT NULL,
-  file_type VARCHAR(50), -- 'assembly', 'visual', 'integrity', 'cumulative'
-  file_size INTEGER,
-  storage_path TEXT, -- Supabase Storage path
-  upload_status VARCHAR(20) CHECK (upload_status IN ('pending', 'processing', 'completed', 'failed')),
-  records_imported INTEGER DEFAULT 0,
-  error_message TEXT,
+  original_filename VARCHAR(255) NOT NULL,
+  file_hash VARCHAR(64) NOT NULL, -- SHA256 for dedup
+  file_size_bytes INT,
+  detected_file_type VARCHAR(50), -- shopfloor, assembly, visual, integrity, cumulative
+  upload_status VARCHAR(20) DEFAULT 'pending' CHECK (upload_status IN ('pending', 'processing', 'completed', 'failed', 'partial')),
+  records_total INT DEFAULT 0,
+  records_valid INT DEFAULT 0,
+  records_invalid INT DEFAULT 0,
+  validation_errors JSONB DEFAULT '[]',
+  ai_analysis JSONB, -- AI interpretation stored here (read-only reference)
+  mapping_config JSONB, -- Column mapping that was applied
+  storage_path TEXT,
+  uploaded_by VARCHAR(100),
   uploaded_at TIMESTAMPTZ DEFAULT NOW(),
-  processed_at TIMESTAMPTZ
+  processing_started_at TIMESTAMPTZ,
+  processing_completed_at TIMESTAMPTZ,
+  UNIQUE(file_hash) -- Prevent duplicate uploads
 );
 
-CREATE INDEX idx_upload_date ON upload_history(uploaded_at DESC);
-CREATE INDEX idx_upload_status ON upload_history(upload_status);
+CREATE INDEX idx_file_upload_date ON file_upload_log(uploaded_at DESC);
+CREATE INDEX idx_file_upload_status ON file_upload_log(upload_status);
+CREATE INDEX idx_file_upload_hash ON file_upload_log(file_hash);
 
--- AI Insights (Cached AI-generated summaries)
-CREATE TABLE ai_insights (
+-- INSPECTION STAGE (master data)
+CREATE TABLE IF NOT EXISTS inspection_stage (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  insight_type VARCHAR(50), -- 'health_summary', 'root_cause', 'prediction', 'recommendation'
-  context_data JSONB, -- Input data for AI prompt
-  insight_text TEXT NOT NULL,
-  confidence_score DECIMAL(3,2),
-  generated_at TIMESTAMPTZ DEFAULT NOW(),
-  expires_at TIMESTAMPTZ, -- Cache expiration
-  metadata JSONB
+  code VARCHAR(20) UNIQUE NOT NULL,
+  name VARCHAR(100) NOT NULL,
+  sequence INT NOT NULL, -- Order in production flow
+  is_active BOOLEAN DEFAULT TRUE
 );
 
-CREATE INDEX idx_insights_type ON ai_insights(insight_type);
-CREATE INDEX idx_insights_date ON ai_insights(generated_at DESC);
-CREATE INDEX idx_insights_expiry ON ai_insights(expires_at);
-```
+-- Seed inspection stages
+INSERT INTO inspection_stage (code, name, sequence) VALUES
+  ('SHOPFLOOR', 'Shopfloor Rejection', 1),
+  ('ASSEMBLY', 'Assembly Inspection', 2),
+  ('VISUAL', 'Visual Inspection', 3),
+  ('INTEGRITY', 'Balloon & Valve Integrity', 4),
+  ('FINAL', 'Final Inspection', 5)
+ON CONFLICT (code) DO NOTHING;
 
-### Database Functions (Computed Metrics)
+-- PRODUCTION SUMMARY (daily aggregates from cumulative/production files)
+CREATE TABLE IF NOT EXISTS production_summary (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  date DATE NOT NULL REFERENCES time_dimension(date),
+  product_code VARCHAR(50),
+  produced_quantity INT NOT NULL CHECK (produced_quantity >= 0),
+  dispatched_quantity INT DEFAULT 0,
+  source_file_id UUID REFERENCES file_upload_log(id) ON DELETE SET NULL,
+  source_row_numbers INT[], -- Array of row numbers from source
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  updated_at TIMESTAMPTZ DEFAULT NOW(),
+  UNIQUE(date, COALESCE(product_code, 'ALL'))
+);
 
-```sql
--- Calculate rejection rate for a batch
-CREATE OR REPLACE FUNCTION calculate_rejection_rate(batch_uuid UUID)
-RETURNS DECIMAL(5,2) AS $$
-DECLARE
-  produced INT;
-  rejected INT;
-BEGIN
-  SELECT produced_quantity, rejected_quantity
-  INTO produced, rejected
-  FROM batches
-  WHERE id = batch_uuid;
-  
-  IF produced = 0 THEN
-    RETURN 0;
-  END IF;
-  
-  RETURN ROUND((rejected::DECIMAL / produced::DECIMAL) * 100, 2);
-END;
-$$ LANGUAGE plpgsql;
+CREATE INDEX idx_production_date ON production_summary(date DESC);
+CREATE INDEX idx_production_product ON production_summary(product_code);
 
--- Update batch risk level based on rejection rate
-CREATE OR REPLACE FUNCTION update_batch_risk_level()
-RETURNS TRIGGER AS $$
-DECLARE
-  rejection_rate DECIMAL(5,2);
-BEGIN
-  rejection_rate := calculate_rejection_rate(NEW.id);
-  
-  IF rejection_rate >= 15 THEN
-    NEW.risk_level := 'high_risk';
-  ELSIF rejection_rate >= 8 THEN
-    NEW.risk_level := 'watch';
-  ELSE
-    NEW.risk_level := 'normal';
-  END IF;
-  
-  RETURN NEW;
-END;
-$$ LANGUAGE plpgsql;
+-- STAGE INSPECTION SUMMARY (daily stage-wise data)
+CREATE TABLE IF NOT EXISTS stage_inspection_summary (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  date DATE NOT NULL REFERENCES time_dimension(date),
+  stage_id UUID NOT NULL REFERENCES inspection_stage(id),
+  received_quantity INT DEFAULT 0,
+  inspected_quantity INT NOT NULL CHECK (inspected_quantity >= 0),
+  accepted_quantity INT DEFAULT 0,
+  hold_quantity INT DEFAULT 0,
+  rejected_quantity INT NOT NULL CHECK (rejected_quantity >= 0),
+  source_file_id UUID REFERENCES file_upload_log(id) ON DELETE SET NULL,
+  source_row_number INT,
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  UNIQUE(date, stage_id)
+);
 
-CREATE TRIGGER trigger_update_batch_risk
-BEFORE INSERT OR UPDATE OF produced_quantity, rejected_quantity
-ON batches
-FOR EACH ROW
-EXECUTE FUNCTION update_batch_risk_level();
+CREATE INDEX idx_stage_summary_date ON stage_inspection_summary(date DESC);
+CREATE INDEX idx_stage_summary_stage ON stage_inspection_summary(stage_id);
 
--- Materialized view for dashboard KPIs (performance optimization)
-CREATE MATERIALIZED VIEW dashboard_kpis AS
-SELECT
-  DATE_TRUNC('day', production_date) AS date,
-  COUNT(*) AS total_batches,
-  SUM(produced_quantity) AS total_produced,
-  SUM(rejected_quantity) AS total_rejected,
-  ROUND(AVG(calculate_rejection_rate(id)), 2) AS avg_rejection_rate,
-  COUNT(CASE WHEN risk_level = 'high_risk' THEN 1 END) AS high_risk_batches,
-  COUNT(CASE WHEN status = 'scrapped' THEN 1 END) AS scrapped_batches
-FROM batches
-WHERE production_date >= CURRENT_DATE - INTERVAL '90 days'
-GROUP BY DATE_TRUNC('day', production_date)
-ORDER BY date DESC;
+-- DEFECT MASTER (normalized defect types)
+CREATE TABLE IF NOT EXISTS defect_master (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  code VARCHAR(50) UNIQUE NOT NULL, -- Normalized code (e.g., "COAG", "RAISED_WIRE")
+  display_name VARCHAR(100) NOT NULL,
+  category VARCHAR(50) CHECK (category IN ('visual', 'dimensional', 'functional', 'material', 'other')),
+  severity VARCHAR(20) DEFAULT 'minor' CHECK (severity IN ('minor', 'major', 'critical')),
+  is_active BOOLEAN DEFAULT TRUE,
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
 
-CREATE UNIQUE INDEX idx_dashboard_kpis_date ON dashboard_kpis(date);
+-- Seed known defect types from Excel files
+INSERT INTO defect_master (code, display_name, category, severity) VALUES
+  ('COAG', 'Coagulation', 'material', 'major'),
+  ('RAISED_WIRE', 'Raised Wire', 'dimensional', 'major'),
+  ('SURFACE_DEFECT', 'Surface Defect', 'visual', 'minor'),
+  ('OVERLAPING', 'Overlapping', 'dimensional', 'minor'),
+  ('BLACK_MARK', 'Black Mark', 'visual', 'minor'),
+  ('WEBBING', 'Webbing', 'material', 'major'),
+  ('MISSING_FORMERS', 'Missing Formers', 'functional', 'critical'),
+  ('LEAKAGE', 'Leakage', 'functional', 'critical'),
+  ('BUBBLE', 'Bubble', 'material', 'minor'),
+  ('THIN_SPOD', 'Thin Spod', 'dimensional', 'minor'),
+  ('DIRTY', 'Dirty', 'visual', 'minor'),
+  ('STICKY', 'Sticky', 'material', 'minor'),
+  ('WEAK', 'Weak', 'functional', 'major'),
+  ('WRONG_COLOR', 'Wrong Color', 'visual', 'minor'),
+  ('OTHERS', 'Others', 'other', 'minor')
+ON CONFLICT (code) DO NOTHING;
 
--- Refresh function (call via API)
-CREATE OR REPLACE FUNCTION refresh_dashboard_kpis()
+-- DEFECT OCCURRENCE (long-format defect data - pivoted from wide Excel columns)
+CREATE TABLE IF NOT EXISTS defect_occurrence (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  date DATE NOT NULL REFERENCES time_dimension(date),
+  stage_id UUID NOT NULL REFERENCES inspection_stage(id),
+  defect_id UUID NOT NULL REFERENCES defect_master(id),
+  quantity INT NOT NULL CHECK (quantity > 0),
+  source_file_id UUID REFERENCES file_upload_log(id) ON DELETE SET NULL,
+  source_row_number INT,
+  source_column_name VARCHAR(100), -- Original Excel column name
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE INDEX idx_defect_occurrence_date ON defect_occurrence(date DESC);
+CREATE INDEX idx_defect_occurrence_stage ON defect_occurrence(stage_id);
+CREATE INDEX idx_defect_occurrence_defect ON defect_occurrence(defect_id);
+CREATE INDEX idx_defect_occurrence_source ON defect_occurrence(source_file_id);
+
+-- ============================================================================
+-- COMPUTED VIEWS (Deterministic KPIs)
+-- ============================================================================
+
+-- Daily KPI Summary (materialized for performance)
+CREATE MATERIALIZED VIEW IF NOT EXISTS mv_daily_kpis AS
+SELECT 
+  ps.date,
+  ps.produced_quantity,
+  COALESCE(SUM(sis.rejected_quantity), 0) AS total_rejected,
+  CASE 
+    WHEN ps.produced_quantity > 0 
+    THEN ROUND((COALESCE(SUM(sis.rejected_quantity), 0)::DECIMAL / ps.produced_quantity) * 100, 2)
+    ELSE 0 
+  END AS rejection_rate
+FROM production_summary ps
+LEFT JOIN stage_inspection_summary sis ON ps.date = sis.date
+GROUP BY ps.date, ps.produced_quantity
+ORDER BY ps.date DESC;
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_mv_daily_kpis_date ON mv_daily_kpis(date);
+
+-- Stage Contribution (materialized)
+CREATE MATERIALIZED VIEW IF NOT EXISTS mv_stage_contribution AS
+WITH stage_totals AS (
+  SELECT 
+    sis.stage_id,
+    ist.code AS stage_code,
+    ist.name AS stage_name,
+    SUM(sis.inspected_quantity) AS total_inspected,
+    SUM(sis.rejected_quantity) AS total_rejected
+  FROM stage_inspection_summary sis
+  JOIN inspection_stage ist ON sis.stage_id = ist.id
+  WHERE sis.date >= CURRENT_DATE - INTERVAL '30 days'
+  GROUP BY sis.stage_id, ist.code, ist.name
+),
+grand_total AS (
+  SELECT SUM(total_rejected) AS grand_total FROM stage_totals
+)
+SELECT 
+  st.stage_id,
+  st.stage_code,
+  st.stage_name,
+  st.total_inspected,
+  st.total_rejected,
+  CASE 
+    WHEN st.total_inspected > 0 
+    THEN ROUND((st.total_rejected::DECIMAL / st.total_inspected) * 100, 2)
+    ELSE 0 
+  END AS rejection_rate,
+  CASE 
+    WHEN gt.grand_total > 0 
+    THEN ROUND((st.total_rejected::DECIMAL / gt.grand_total) * 100, 2)
+    ELSE 0 
+  END AS contribution_pct
+FROM stage_totals st
+CROSS JOIN grand_total gt
+ORDER BY st.total_rejected DESC;
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_mv_stage_contribution ON mv_stage_contribution(stage_id);
+
+-- Defect Pareto (materialized)
+CREATE MATERIALIZED VIEW IF NOT EXISTS mv_defect_pareto AS
+WITH defect_totals AS (
+  SELECT 
+    do.defect_id,
+    dm.code AS defect_code,
+    dm.display_name,
+    dm.category,
+    dm.severity,
+    SUM(do.quantity) AS total_quantity
+  FROM defect_occurrence do
+  JOIN defect_master dm ON do.defect_id = dm.id
+  WHERE do.date >= CURRENT_DATE - INTERVAL '30 days'
+  GROUP BY do.defect_id, dm.code, dm.display_name, dm.category, dm.severity
+),
+ranked AS (
+  SELECT 
+    *,
+    SUM(total_quantity) OVER () AS grand_total,
+    ROW_NUMBER() OVER (ORDER BY total_quantity DESC) AS rank
+  FROM defect_totals
+)
+SELECT 
+  defect_id,
+  defect_code,
+  display_name,
+  category,
+  severity,
+  total_quantity,
+  ROUND((total_quantity::DECIMAL / grand_total) * 100, 2) AS percentage,
+  ROUND(SUM(total_quantity::DECIMAL / grand_total * 100) OVER (ORDER BY total_quantity DESC), 2) AS cumulative_pct,
+  rank
+FROM ranked
+ORDER BY rank;
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_mv_defect_pareto ON mv_defect_pareto(defect_id);
+
+-- Refresh function
+CREATE OR REPLACE FUNCTION refresh_all_kpi_views()
 RETURNS VOID AS $$
 BEGIN
-  REFRESH MATERIALIZED VIEW CONCURRENTLY dashboard_kpis;
+  REFRESH MATERIALIZED VIEW CONCURRENTLY mv_daily_kpis;
+  REFRESH MATERIALIZED VIEW CONCURRENTLY mv_stage_contribution;
+  REFRESH MATERIALIZED VIEW CONCURRENTLY mv_defect_pareto;
 END;
 $$ LANGUAGE plpgsql;
 ```
 
 ---
 
-## 🎨 Component Architecture
+## 3. AI USAGE BOUNDARY (STRICT)
 
-### Directory Structure
+### 3.1 AI IS ALLOWED TO:
+
+| Capability | Implementation |
+|------------|----------------|
+| Classify file intent | Store in `file_upload_log.ai_analysis` |
+| Infer inspection stage | Suggest, user confirms |
+| Identify column meanings | Map column names to schema fields |
+| Suggest mappings | Confidence scores, user reviews |
+| Detect ambiguity | Flag for human review |
+| Generate summaries | Read-only from computed KPIs |
+
+### 3.2 AI IS NOT ALLOWED TO:
+
+| Forbidden | Enforcement |
+|-----------|-------------|
+| Compute KPIs | All KPIs from SQL views |
+| Modify values | Input validation rejects, never "cleans" |
+| Infer missing numbers | NULL or reject, never invent |
+| Skip validation | Hard fail on invalid data |
+| Be source of truth | AI output is advisory metadata only |
+
+---
+
+## 4. ATOMIC TASK BREAKDOWN
+
+### Phase 1: Database Reset (PRIORITY)
+
+| ID | Task | Purpose | Test Gate |
+|----|------|---------|-----------|
+| 1.1 | Create migration 003 | New normalized schema | Migration runs |
+| 1.2 | Drop old tables | Clean slate | Old tables gone |
+| 1.3 | Verify schema | Check all tables exist | SELECT from all tables |
+| 1.4 | Seed master data | Stages, defects | 5 stages, 15 defects exist |
+
+### Phase 2: Pure Excel Parser (No AI)
+
+| ID | Task | Purpose | Test Gate |
+|----|------|---------|-----------|
+| 2.1 | Create `excelReader.ts` | Read Excel to raw arrays | Unit test passes |
+| 2.2 | Create `headerDetector.ts` | Find header row | Detects row 0-10 |
+| 2.3 | Create `fileHasher.ts` | SHA256 for dedup | Hash matches expected |
+| 2.4 | Unit tests | Test all parsers | 100% pass |
+
+### Phase 3: AI Analyzer (Interpretation Only)
+
+| ID | Task | Purpose | Test Gate |
+|----|------|---------|-----------|
+| 3.1 | Create `fileClassifier.ts` | Detect file type | Returns type + confidence |
+| 3.2 | Create `columnMapper.ts` | Map columns to schema | Returns mapping suggestions |
+| 3.3 | Store AI result | Save to `ai_analysis` JSONB | Stored correctly |
+| 3.4 | Unit tests | Test AI wrapper | Mock tests pass |
+
+### Phase 4: Validation Layer (Strict)
+
+| ID | Task | Purpose | Test Gate |
+|----|------|---------|-----------|
+| 4.1 | Create `schemaValidator.ts` | Validate against schema | Rejects bad data |
+| 4.2 | Create `rowValidator.ts` | Validate individual rows | Error messages clear |
+| 4.3 | Validation errors | Collect all errors | Array of errors returned |
+| 4.4 | Unit tests | Test validation | Bad data rejected |
+
+### Phase 5: Transformer (Deterministic)
+
+| ID | Task | Purpose | Test Gate |
+|----|------|---------|-----------|
+| 5.1 | Create `wideToLong.ts` | Pivot defect columns | Correct row count |
+| 5.2 | Create `normalizer.ts` | Normalize values | Consistent formats |
+| 5.3 | Create `dbInserter.ts` | Insert with source tracking | Records have file_id |
+| 5.4 | Integration test | Full transform pipeline | Data in DB correct |
+
+### Phase 6: KPI Engine (Pure SQL)
+
+| ID | Task | Purpose | Test Gate |
+|----|------|---------|-----------|
+| 6.1 | Create `kpiQueries.ts` | SQL queries for KPIs | Correct results |
+| 6.2 | Refresh views | Trigger view refresh | Views updated |
+| 6.3 | NO FALLBACKS | Fail if no data | Returns error, not mock |
+| 6.4 | Unit tests | Test all calculations | Math verified |
+
+### Phase 7: API Layer
+
+| ID | Task | Purpose | Test Gate |
+|----|------|---------|-----------|
+| 7.1 | Upload API | `/api/upload` | Returns upload_id |
+| 7.2 | Overview API | `/api/analytics/overview` | Returns KPIs or error |
+| 7.3 | Trends API | `/api/analytics/trends` | Returns array |
+| 7.4 | Pareto API | `/api/analytics/pareto` | Returns defect list |
+| 7.5 | Stage API | `/api/analytics/stages` | Returns stage breakdown |
+| 7.6 | Integration tests | Test all endpoints | All pass |
+
+### Phase 8: Frontend (Real Data Only)
+
+| ID | Task | Purpose | Test Gate |
+|----|------|---------|-----------|
+| 8.1 | Dashboard | Show KPIs or empty state | No mock data |
+| 8.2 | Trends page | Chart or empty state | No mock data |
+| 8.3 | Analysis page | Pareto or empty state | No mock data |
+| 8.4 | Stage page | Breakdown or empty state | No mock data |
+| 8.5 | Upload page | Full flow | Files process |
+| 8.6 | E2E tests | Test user flows | All pass |
+
+---
+
+## 5. EXECUTION ORDER
 
 ```
-src/
-├── app/                                # Next.js App Router
-│   ├── (dashboard)/                   # Dashboard layout group
-│   │   ├── layout.tsx                 # Shared dashboard layout (sidebar, header)
-│   │   ├── page.tsx                   # Dashboard home
-│   │   ├── trends/page.tsx            # Rejection trends
-│   │   ├── analysis/page.tsx          # Defect analysis
-│   │   ├── batch-risk/page.tsx        # Batch risk monitoring
-│   │   ├── supplier/page.tsx          # Supplier quality
-│   │   └── reports/page.tsx           # Report generation
-│   ├── settings/
-│   │   ├── layout.tsx
-│   │   └── upload/page.tsx            # Excel upload (client component)
-│   ├── api/
-│   │   ├── analytics/
-│   │   │   ├── overview/route.ts      # Dashboard KPIs
-│   │   │   ├── trends/route.ts        # Time-series data
-│   │   │   ├── pareto/route.ts        # Defect Pareto
-│   │   │   └── suppliers/route.ts     # Supplier rankings
-│   │   ├── batches/
-│   │   │   ├── route.ts               # List batches (with filters)
-│   │   │   └── [id]/route.ts          # Batch details
-│   │   ├── upload/
-│   │   │   ├── route.ts               # File upload handler
-│   │   │   └── validate/route.ts      # Schema validation
-│   │   └── ai/
-│   │       ├── summarize/route.ts     # Health summary
-│   │       ├── root-cause/route.ts    # Root cause analysis
-│   │       └── predict/route.ts       # Predictive alerts
-│   ├── layout.tsx                     # Root layout
-│   └── globals.css                    # Global styles + design tokens
-├── components/
-│   ├── ui/                            # shadcn/ui primitives
-│   │   ├── button.tsx
-│   │   ├── card.tsx
-│   │   ├── badge.tsx
-│   │   ├── table.tsx
-│   │   └── ...
-│   ├── dashboard/
-│   │   ├── KPICard.tsx                # Reusable KPI display
-│   │   ├── TrendChart.tsx             # Time-series chart wrapper
-│   │   ├── ParetoChart.tsx            # Pareto chart
-│   │   ├── RiskBadge.tsx              # Risk level indicator
-│   │   └── AIInsightPanel.tsx         # AI summary display
-│   ├── layout/
-│   │   ├── DashboardSidebar.tsx       # Navigation sidebar
-│   │   ├── DashboardHeader.tsx        # Page header
-│   │   └── PageContainer.tsx          # Consistent page wrapper
-│   └── upload/
-│       ├── FileUploadZone.tsx         # Drag-drop upload
-│       └── UploadStatusTable.tsx      # Upload history
-├── lib/
-│   ├── db/
-│   │   ├── client.ts                  # Supabase client factory
-│   │   ├── types.ts                   # Generated types from schema
-│   │   └── repositories/
-│   │       ├── batchRepository.ts     # Batch data access
-│   │       ├── inspectionRepository.ts
-│   │       ├── defectRepository.ts
-│   │       └── supplierRepository.ts
-│   ├── analytics/
-│   │   ├── kpiEngine.ts               # KPI calculation logic
-│   │   ├── riskClassifier.ts          # Batch risk logic
-│   │   └── forecasting.ts             # Simple trend forecasting
-│   ├── ai/
-│   │   ├── gemini.ts                  # Gemini client wrapper
-│   │   ├── prompts.ts                 # AI prompt templates
-│   │   └── cache.ts                   # AI response caching
-│   ├── upload/
-│   │   ├── excelParser.ts             # Excel processing
-│   │   ├── schemaDetector.ts          # Auto-detect file type
-│   │   ├── validator.ts               # Data validation
-│   │   └── transformer.ts             # Data normalization
-│   ├── utils/
-│   │   ├── formatters.ts              # Number/date formatting
-│   │   ├── colors.ts                  # WCAG-compliant color utilities
-│   │   └── accessibility.ts           # A11y helpers
-│   └── hooks/
-│       ├── useDashboardData.ts        # SWR wrapper for dashboard
-│       ├── useTrends.ts               # Trends data hook
-│       └── useFileUpload.ts           # Upload state management
-└── types/
-    ├── analytics.ts                   # Analytics types
-    ├── batch.ts                       # Domain types
-    └── api.ts                         # API response types
+TODAY:
+1. Create migration 003 (new schema)
+2. Apply migration
+3. Implement pure Excel parser
+4. Implement validation layer
+
+TOMORROW:
+5. Implement wide-to-long transformer
+6. Implement DB inserter with audit trail
+7. Create KPI SQL views
+8. Test with real Excel files
+
+DAY 3:
+9. Rebuild API layer (no fallbacks)
+10. Rebuild frontend (no mock data)
+11. Integration testing
+12. E2E testing
+
+DAY 4:
+13. AI analyzer (interpretation only)
+14. Final verification
+15. Documentation
 ```
 
 ---
 
-## 🎯 Page Specifications
+## 6. SUCCESS CRITERIA (MANDATORY)
 
-### 1. Dashboard (Home) - `/`
+Before declaring COMPLETE:
 
-**Business Question:** *What's the current rejection health?*
-
-**Layout:**
-```
-┌─────────────────────────────────────────────┐
-│  🏠 Dashboard                       [GM Name]│
-├─────────────────────────────────────────────┤
-│                                              │
-│  ┌──────────┐ ┌──────────┐ ┌──────────┐    │
-│  │ Overall  │ │ Rejected │ │ Est. Cost│    │
-│  │   8.2%   │ │  1,234   │ │ ₹4.5 Lac │    │
-│  │ ──────── │ │ ──────── │ │ ──────── │    │
-│  │ ↑ 1.2%   │ │ ↑ 156    │ │ ↑ ₹0.8L  │    │
-│  └──────────┘ └──────────┘ └──────────┘    │
-│                                              │
-│  ┌───────────────────────────────────────┐  │
-│  │ 🤖 AI Health Summary                  │  │
-│  │                                       │  │
-│  │ Rejection rate increased 1.2% this   │  │
-│  │ week. Main driver: visual defects    │  │
-│  │ in Batch BR-2401 (15.2% rejection).  │  │
-│  │                                       │  │
-│  │ ⚠️ 3 batches at high risk of        │  │
-│  │ scrapping. Immediate review needed.  │  │
-│  └───────────────────────────────────────┘  │
-│                                              │
-│  ┌───────────────────────────────────────┐  │
-│  │ Rejection Trend (Last 30 Days)        │  │
-│  │         📈                             │  │
-│  │    [Line Chart: Produced vs Rejected] │  │
-│  └───────────────────────────────────────┘  │
-│                                              │
-│  ┌───────────────────────────────────────┐  │
-│  │ High-Risk Batches (3)         [View]  │  │
-│  │ • BR-2401 - 15.2% rejection          │  │
-│  │ • BR-2398 - 12.8% rejection          │  │
-│  │ • BR-2405 - 11.5% rejection          │  │
-│  └───────────────────────────────────────┘  │
-└─────────────────────────────────────────────┘
-```
-
-**Components:**
-- 3 KPI cards (rejection rate, rejected units, cost impact)
-- AI-generated health summary panel
-- Trend chart (30-day rolling)
-- High-risk batch quick list
-
-**API Endpoints:**
-- `GET /api/analytics/overview` - KPIs + high-risk batches
-- `GET /api/ai/summarize` - AI health summary
-- `GET /api/analytics/trends?days=30` - Trend data
+- [ ] `npm run build` exits 0
+- [ ] All tests pass
+- [ ] No mock data in codebase
+- [ ] Every KPI traceable to source file + row
+- [ ] Upload → Process → View flow works with real Excel
+- [ ] All 5 business questions answerable:
+  1. Is rejection improving or worsening? ✓
+  2. Which stages contribute most? ✓
+  3. Which defects drive losses? ✓
+  4. Which batches are at risk? ✓
+  5. Is data trustworthy? ✓
 
 ---
 
-### 2. Rejection Trends - `/trends`
+## 7. IMMEDIATE FIRST STEP
 
-**Business Question:** *Are we improving or getting worse?*
-
-**Layout:**
-```
-┌─────────────────────────────────────────────┐
-│  📊 Rejection Trends                         │
-├─────────────────────────────────────────────┤
-│                                              │
-│  Time Period: [Last 7 Days ▼]               │
-│                                              │
-│  ┌───────────────────────────────────────┐  │
-│  │ Daily Rejection Rate                  │  │
-│  │         📊                             │  │
-│  │    [Bar Chart with trend line]        │  │
-│  └───────────────────────────────────────┘  │
-│                                              │
-│  ┌──────────────┐ ┌──────────────┐         │
-│  │ This Period  │ │ Last Period  │         │
-│  │   8.2%       │ │   7.0%       │         │
-│  │ ──────────── │ │ ──────────── │         │
-│  │ ↑ 1.2% worse │ │ Baseline     │         │
-│  └──────────────┘ └──────────────┘         │
-│                                              │
-│  ┌───────────────────────────────────────┐  │
-│  │ Produced vs Rejected                  │  │
-│  │         📈                             │  │
-│  │    [Stacked area chart]               │  │
-│  └───────────────────────────────────────┘  │
-└─────────────────────────────────────────────┘
-```
-
-**Features:**
-- Time period selector (7/14/30/90 days)
-- Period-over-period comparison
-- Dual charts (rejection rate + volume)
-
-**API Endpoints:**
-- `GET /api/analytics/trends?period=7d`
-
----
-
-### 3. Defect Analysis - `/analysis`
-
-**Business Question:** *What's causing the most rejections?*
-
-**Layout:**
-```
-┌─────────────────────────────────────────────┐
-│  🔍 Defect Analysis                          │
-├─────────────────────────────────────────────┤
-│                                              │
-│  ┌───────────────────────────────────────┐  │
-│  │ Top Defects (Pareto Chart)            │  │
-│  │         📊                             │  │
-│  │    [Bar + Line showing 80/20 rule]    │  │
-│  └───────────────────────────────────────┘  │
-│                                              │
-│  ┌─────────────────────────────────────────┐│
-│  │ Defect             Count    % of Total  ││
-│  │ Visual Defects      456        38%      ││
-│  │ Dimensional         234        19%      ││
-│  │ Functional          189        16%      ││
-│  │ Material            145        12%      ││
-│  │ Other               180        15%      ││
-│  └─────────────────────────────────────────┘│
-│                                              │
-│  ┌───────────────────────────────────────┐  │
-│  │ 🤖 AI Root Cause Insight              │  │
-│  │                                       │  │
-│  │ Visual defects spiked 2 days ago.    │  │
-│  │ Correlation detected with:            │  │
-│  │ • Supplier S-401 material batch      │  │
-│  │ • Assembly stage operator change     │  │
-│  │                                       │  │
-│  │ 💡 Recommendation: Inspect incoming  │  │
-│  │ material quality from S-401          │  │
-│  └───────────────────────────────────────┘  │
-└─────────────────────────────────────────────┘
-```
-
-**Features:**
-- Pareto chart (80/20 rule visualization)
-- Defect type breakdown table
-- AI root cause analysis
-
-**API Endpoints:**
-- `GET /api/analytics/pareto?period=30d`
-- `GET /api/ai/root-cause?defect_type=visual`
-
----
-
-### 4. Batch Risk - `/batch-risk`
-
-**Business Question:** *Which batches need immediate attention?*
-
-**Layout:**
-```
-┌─────────────────────────────────────────────┐
-│  ⚠️ Batch Risk Monitor                       │
-├─────────────────────────────────────────────┤
-│                                              │
-│  Risk Filter: [All ▼] [High Risk] [Watch]   │
-│                                              │
-│  ┌─────────────────────────────────────────┐│
-│  │ Batch      Date    Rejection  Risk   🔍 ││
-│  │ BR-2401   2/1/26     15.2%    🔴 HIGH   ││
-│  │ BR-2398   1/30/26    12.8%    🔴 HIGH   ││
-│  │ BR-2405   2/2/26     11.5%    🔴 HIGH   ││
-│  │ BR-2399   1/31/26     9.2%    🟡 WATCH  ││
-│  │ BR-2403   2/1/26      8.5%    🟡 WATCH  ││
-│  │ ...                                      ││
-│  └─────────────────────────────────────────┘│
-│                                              │
-│  Click batch ID to see details ───────────▶ │
-└─────────────────────────────────────────────┘
-```
-
-**Features:**
-- Risk-based filtering
-- Color-coded risk badges
-- Sortable table
-- Click → batch detail modal
-
-**API Endpoints:**
-- `GET /api/batches?risk_level=high_risk`
-- `GET /api/batches/{id}` - Batch details
-
----
-
-### 5. Supplier Quality - `/supplier`
-
-**Business Question:** *Which suppliers are problematic?*
-
-**Layout:**
-```
-┌─────────────────────────────────────────────┐
-│  🏭 Supplier Quality                         │
-├─────────────────────────────────────────────┤
-│                                              │
-│  ┌─────────────────────────────────────────┐│
-│  │ Supplier    Batches  Avg Rejection  ⭐  ││
-│  │ S-401         12        14.2%      2.1  ││
-│  │ S-203          8        11.5%      2.8  ││
-│  │ S-115         15         8.9%      3.2  ││
-│  │ S-302         22         4.2%      4.1  ││
-│  │ ...                                      ││
-│  └─────────────────────────────────────────┘│
-│                                              │
-│  ┌───────────────────────────────────────┐  │
-│  │ Supplier Performance Trend            │  │
-│  │         📊                             │  │
-│  │    [Line chart: top 5 suppliers]      │  │
-│  └───────────────────────────────────────┘  │
-└─────────────────────────────────────────────┘
-```
-
-**Features:**
-- Supplier ranking table
-- Performance trend chart
-- Star rating visualization
-
-**API Endpoints:**
-- `GET /api/analytics/suppliers?period=90d`
-
----
-
-### 6. Reports - `/reports`
-
-**Business Question:** *Generate reports for audits/reviews*
-
-**Layout:**
-```
-┌─────────────────────────────────────────────┐
-│  📄 Reports                                  │
-├─────────────────────────────────────────────┤
-│                                              │
-│  Report Type: [Monthly Summary ▼]           │
-│  Period: [Last Month ▼]                     │
-│                                              │
-│  [Generate Report]  [Download PDF]          │
-│                                              │
-│  ┌───────────────────────────────────────┐  │
-│  │ Recent Reports                        │  │
-│  │                                       │  │
-│  │ • Monthly Summary - Jan 2026          │  │
-│  │   Generated: 2/1/26  [Download]       │  │
-│  │                                       │  │
-│  │ • Defect Pareto - Q4 2025             │  │
-│  │   Generated: 1/5/26  [Download]       │  │
-│  │                                       │  │
-│  │ • Batch Risk - Jan 2026               │  │
-│  │   Generated: 1/31/26  [Download]      │  │
-│  └───────────────────────────────────────┘  │
-└─────────────────────────────────────────────┘
-```
-
-**Features:**
-- Report type selector
-- Period selector
-- Generate & download
-- Recent reports list
-
-**API Endpoints:**
-- `POST /api/reports/generate`
-- `GET /api/reports/{id}/download`
-
----
-
-### 7. Upload - `/settings/upload`
-
-**Business Question:** *Upload new inspection data*
-
-**Layout:**
-```
-┌─────────────────────────────────────────────┐
-│  ⬆️ Upload Inspection Data                   │
-├─────────────────────────────────────────────┤
-│                                              │
-│  ┌───────────────────────────────────────┐  │
-│  │                                       │  │
-│  │         📁 Drag & Drop Excel          │  │
-│  │                                       │  │
-│  │       or click to browse              │  │
-│  │                                       │  │
-│  └───────────────────────────────────────┘  │
-│                                              │
-│  Supported: .xlsx, .xls (Max 50MB)          │
-│                                              │
-│  ┌─────────────────────────────────────────┐│
-│  │ Upload History                          ││
-│  │                                         ││
-│  │ File              Date      Status      ││
-│  │ visual_feb.xlsx  2/3 10am  ✅ Success   ││
-│  │ assembly.xlsx    2/2 2pm   ✅ Success   ││
-│  │ integrity.xlsx   2/1 9am   ❌ Failed    ││
-│  │                              [Retry]    ││
-│  └─────────────────────────────────────────┘│
-└─────────────────────────────────────────────┘
-```
-
-**Features:**
-- Drag-drop file upload
-- Real-time upload progress
-- Upload history with status
-- Error messages + retry
-
-**API Endpoints:**
-- `POST /api/upload` - File upload
-- `GET /api/upload/history` - Upload history
-
----
-
-## 🤖 AI Features (Gemini 2.5 Flash)
-
-### 1. Health Summary (Dashboard)
-**Prompt Template:**
-```typescript
-const HEALTH_SUMMARY_PROMPT = `
-You are an AI assistant for a manufacturing quality manager.
-
-Analyze this rejection data and provide a concise executive summary (3-4 sentences maximum):
-
-Data:
-- Overall rejection rate: ${data.rejectionRate}% (${data.trend} from last period)
-- Total rejected units: ${data.rejectedCount}
-- High-risk batches: ${data.highRiskBatches.length}
-- Top defect: ${data.topDefect.type} (${data.topDefect.percentage}%)
-
-Focus on:
-1. Overall health (improving/worsening)
-2. Main problem area
-3. Urgent action items (if any)
-
-Use simple language. No technical jargon.
-`;
-```
-
-**Output Format:**
-```typescript
-interface HealthSummary {
-  summary: string;
-  sentiment: 'positive' | 'neutral' | 'concerning' | 'critical';
-  actionItems: string[];
-}
-```
-
-### 2. Root Cause Analysis (Defect Analysis Page)
-**Prompt Template:**
-```typescript
-const ROOT_CAUSE_PROMPT = `
-You are a manufacturing quality expert.
-
-Analyze this defect pattern and suggest probable root causes:
-
-Defect: ${defectType}
-Recent trend: ${trendData}
-Correlated factors:
-- Suppliers: ${supplierData}
-- Stages: ${stageData}
-- Time patterns: ${timePatterns}
-
-Provide:
-1. Most likely root cause (1-2 sentences)
-2. Supporting evidence from data
-3. Recommended investigation steps (2-3 bullet points)
-
-Be specific and actionable.
-`;
-```
-
-### 3. Predictive Alerts (Batch Risk Page)
-**Prompt Template:**
-```typescript
-const PREDICTION_PROMPT = `
-You are a predictive analytics assistant.
-
-Based on this batch's inspection history, predict risk level:
-
-Batch: ${batchNumber}
-Current rejection rate: ${currentRate}%
-Inspection history: ${inspectionHistory}
-Similar batch patterns: ${historicalComparison}
-
-Predict:
-1. Risk level (Normal/Watch/High Risk)
-2. Confidence level (0-100%)
-3. Reasoning (2-3 sentences)
-4. Recommended actions
-
-Use historical data patterns for prediction.
-`;
-```
-
-### 4. Natural Language Query (Future Enhancement)
-**Example:**
-```typescript
-// User types: "Why is batch BR-2401 failing?"
-const NLQ_PROMPT = `
-User question: ${userQuery}
-
-Available data:
-- Batch details: ${batchData}
-- Defects: ${defectData}
-- Supplier: ${supplierData}
-- Stage-wise breakdown: ${stageData}
-
-Provide a clear answer in 2-3 sentences.
-If data is insufficient, say so.
-`;
-```
-
-### AI Caching Strategy
-```typescript
-// Cache AI responses for 1 hour to save costs
-interface AICache {
-  key: string; // Hash of prompt + data
-  response: string;
-  generatedAt: Date;
-  expiresAt: Date;
-}
-
-// Check cache before calling Gemini API
-async function getAISummary(data: KPIData): Promise<string> {
-  const cacheKey = hashData(data);
-  const cached = await getCachedInsight(cacheKey);
-  
-  if (cached && cached.expiresAt > new Date()) {
-    return cached.response;
-  }
-  
-  const response = await gemini.generateContent(HEALTH_SUMMARY_PROMPT);
-  await cacheInsight(cacheKey, response, 1 /* hour */);
-  
-  return response;
-}
-```
-
----
-
-## 🎨 Design System Implementation
-
-### Tailwind Configuration
-```typescript
-// tailwind.config.ts
-import type { Config } from 'tailwindcss';
-
-const config: Config = {
-  content: ['./src/**/*.{js,ts,jsx,tsx}'],
-  theme: {
-    extend: {
-      colors: {
-        // WCAG AAA compliant palette
-        primary: {
-          DEFAULT: '#0066CC', // 6.5:1 contrast
-          dark: '#004C99',    // 9.74:1 contrast
-          light: '#3385D6',
-        },
-        success: {
-          DEFAULT: '#006600', // 7.58:1
-          dark: '#004400',
-        },
-        warning: {
-          DEFAULT: '#CC6600', // 4.52:1 (large text)
-          dark: '#994D00',
-        },
-        danger: {
-          DEFAULT: '#CC0000', // 5.9:1
-          dark: '#990000',
-        },
-        text: {
-          primary: '#000000',   // 21:1
-          secondary: '#333333', // 12.63:1
-          tertiary: '#666666',  // 5.74:1 (large text only)
-        },
-        bg: {
-          primary: '#FFFFFF',
-          secondary: '#F5F5F5',
-          tertiary: '#E8E8E8',
-        },
-      },
-      fontSize: {
-        // Executive-friendly sizes
-        xs: ['14px', { lineHeight: '20px' }],
-        sm: ['16px', { lineHeight: '24px' }],
-        base: ['18px', { lineHeight: '28px' }],  // Body text
-        lg: ['20px', { lineHeight: '30px' }],
-        xl: ['24px', { lineHeight: '32px' }],    // Headings
-        '2xl': ['32px', { lineHeight: '40px' }],
-        '3xl': ['48px', { lineHeight: '56px' }], // KPI values
-      },
-      spacing: {
-        // 8px grid system
-        xs: '8px',
-        sm: '16px',
-        md: '24px',
-        lg: '32px',
-        xl: '48px',
-        '2xl': '64px',
-      },
-      fontWeight: {
-        normal: '400',
-        medium: '600',
-        bold: '700',
-      },
-    },
-  },
-  plugins: [],
-};
-
-export default config;
-```
-
-### shadcn/ui Setup
-```bash
-# Install shadcn/ui CLI
-npx shadcn-ui@latest init
-
-# Add required components
-npx shadcn-ui@latest add button
-npx shadcn-ui@latest add card
-npx shadcn-ui@latest add badge
-npx shadcn-ui@latest add table
-npx shadcn-ui@latest add select
-npx shadcn-ui@latest add dialog
-npx shadcn-ui@latest add toast
-```
-
-### Custom Components
-
-#### KPICard.tsx
-```typescript
-interface KPICardProps {
-  title: string;
-  value: string | number;
-  change?: {
-    value: number;
-    direction: 'up' | 'down';
-    label: string;
-  };
-  icon?: React.ReactNode;
-  variant?: 'default' | 'success' | 'warning' | 'danger';
-}
-
-export function KPICard({ title, value, change, icon, variant = 'default' }: KPICardProps) {
-  const colorMap = {
-    default: 'text-text-primary',
-    success: 'text-success',
-    warning: 'text-warning',
-    danger: 'text-danger',
-  };
-
-  return (
-    <Card className="p-lg">
-      <div className="flex items-start justify-between">
-        <div className="flex-1">
-          <p className="text-base font-normal text-text-secondary mb-xs">
-            {title}
-          </p>
-          <p className={`text-3xl font-bold ${colorMap[variant]}`}>
-            {value}
-          </p>
-          {change && (
-            <div className="flex items-center gap-xs mt-sm">
-              <span className={`text-sm ${change.direction === 'up' ? 'text-danger' : 'text-success'}`}>
-                {change.direction === 'up' ? '↑' : '↓'} {Math.abs(change.value)}%
-              </span>
-              <span className="text-sm text-text-tertiary">{change.label}</span>
-            </div>
-          )}
-        </div>
-        {icon && <div className="text-primary text-2xl">{icon}</div>}
-      </div>
-    </Card>
-  );
-}
-```
-
-#### RiskBadge.tsx
-```typescript
-interface RiskBadgeProps {
-  level: 'normal' | 'watch' | 'high_risk';
-  showIcon?: boolean;
-}
-
-export function RiskBadge({ level, showIcon = true }: RiskBadgeProps) {
-  const config = {
-    normal: {
-      label: 'Normal',
-      color: 'bg-success text-white',
-      icon: '✓',
-    },
-    watch: {
-      label: 'Watch',
-      color: 'bg-warning text-white',
-      icon: '⚠',
-    },
-    high_risk: {
-      label: 'High Risk',
-      color: 'bg-danger text-white',
-      icon: '⚠',
-    },
-  };
-
-  const { label, color, icon } = config[level];
-
-  return (
-    <Badge className={`${color} text-base font-medium px-md py-xs`}>
-      {showIcon && <span className="mr-xs">{icon}</span>}
-      {label}
-    </Badge>
-  );
-}
-```
-
----
-
-## 📡 API Contract Specification
-
-### Authentication
-```typescript
-// All API routes use Supabase RLS (Row Level Security)
-// No explicit authentication required for now (internal dashboard)
-// Future: Add JWT-based auth with iron-session
-```
-
-### Response Format
-```typescript
-interface APIResponse<T> {
-  success: boolean;
-  data?: T;
-  error?: {
-    code: string;
-    message: string;
-    details?: unknown;
-  };
-  meta?: {
-    timestamp: string;
-    version: string;
-  };
-}
-```
-
-### Endpoints
-
-#### 1. Analytics Overview
-```typescript
-GET /api/analytics/overview
-Query Params: period?: '7d' | '30d' | '90d' (default: 30d)
-
-Response:
-{
-  success: true,
-  data: {
-    rejectionRate: {
-      current: 8.2,
-      previous: 7.0,
-      change: 1.2,
-      trend: 'up'
-    },
-    rejectedUnits: {
-      current: 1234,
-      previous: 1078,
-      change: 156
-    },
-    estimatedCost: {
-      current: 450000,
-      previous: 370000,
-      change: 80000,
-      currency: 'INR'
-    },
-    highRiskBatches: [
-      {
-        id: 'uuid',
-        batchNumber: 'BR-2401',
-        rejectionRate: 15.2,
-        productionDate: '2026-02-01'
-      }
-    ]
-  }
-}
-```
-
-#### 2. Trends
-```typescript
-GET /api/analytics/trends
-Query Params: 
-  - period: '7d' | '14d' | '30d' | '90d'
-  - granularity: 'daily' | 'weekly'
-
-Response:
-{
-  success: true,
-  data: {
-    timeline: [
-      {
-        date: '2026-02-01',
-        produced: 5000,
-        rejected: 410,
-        rejectionRate: 8.2
-      },
-      // ...
-    ],
-    summary: {
-      avgRejectionRate: 8.2,
-      totalProduced: 150000,
-      totalRejected: 12300
-    }
-  }
-}
-```
-
-#### 3. Pareto Analysis
-```typescript
-GET /api/analytics/pareto
-Query Params: period?: '30d' | '90d'
-
-Response:
-{
-  success: true,
-  data: {
-    defects: [
-      {
-        type: 'Visual Defects',
-        count: 456,
-        percentage: 38,
-        cumulativePercentage: 38
-      },
-      {
-        type: 'Dimensional',
-        count: 234,
-        percentage: 19,
-        cumulativePercentage: 57
-      }
-      // ...
-    ],
-    total: 1204
-  }
-}
-```
-
-#### 4. Batch List
-```typescript
-GET /api/batches
-Query Params:
-  - risk_level?: 'normal' | 'watch' | 'high_risk'
-  - status?: 'in_progress' | 'completed' | 'scrapped'
-  - limit?: number (default: 50)
-  - offset?: number (default: 0)
-  - sort?: 'date_desc' | 'rejection_rate_desc'
-
-Response:
-{
-  success: true,
-  data: {
-    batches: [
-      {
-        id: 'uuid',
-        batchNumber: 'BR-2401',
-        productCode: 'PROD-A1',
-        producedQuantity: 5000,
-        rejectedQuantity: 760,
-        rejectionRate: 15.2,
-        riskLevel: 'high_risk',
-        productionDate: '2026-02-01',
-        status: 'in_progress'
-      }
-    ],
-    total: 245,
-    limit: 50,
-    offset: 0
-  }
-}
-```
-
-#### 5. Batch Details
-```typescript
-GET /api/batches/{id}
-
-Response:
-{
-  success: true,
-  data: {
-    batch: {
-      id: 'uuid',
-      batchNumber: 'BR-2401',
-      // ... batch fields
-    },
-    inspections: [
-      {
-        stage: 'assembly',
-        inspectedQuantity: 5000,
-        passedQuantity: 4800,
-        failedQuantity: 200,
-        inspectionDate: '2026-02-01T10:00:00Z'
-      }
-    ],
-    defects: [
-      {
-        type: 'Visual Defects',
-        code: 'VD-01',
-        quantity: 120,
-        severity: 'major'
-      }
-    ],
-    suppliers: [
-      {
-        supplierCode: 'S-401',
-        supplierName: 'ABC Components',
-        componentType: 'Housing'
-      }
-    ]
-  }
-}
-```
-
-#### 6. Supplier Rankings
-```typescript
-GET /api/analytics/suppliers
-Query Params: period?: '30d' | '90d'
-
-Response:
-{
-  success: true,
-  data: {
-    suppliers: [
-      {
-        id: 'uuid',
-        supplierCode: 'S-401',
-        supplierName: 'ABC Components',
-        batchCount: 12,
-        avgRejectionRate: 14.2,
-        rating: 2.1,
-        trend: 'worsening'
-      }
-    ]
-  }
-}
-```
-
-#### 7. AI Summarize
-```typescript
-POST /api/ai/summarize
-Body: {
-  type: 'health' | 'root_cause' | 'prediction',
-  data: Record<string, unknown>
-}
-
-Response:
-{
-  success: true,
-  data: {
-    summary: 'Rejection rate increased 1.2% this week...',
-    sentiment: 'concerning',
-    actionItems: [
-      'Review Batch BR-2401 immediately',
-      'Inspect supplier S-401 quality'
-    ],
-    confidence: 0.85
-  }
-}
-```
-
-#### 8. File Upload
-```typescript
-POST /api/upload
-Content-Type: multipart/form-data
-Body: FormData with 'file' field
-
-Response:
-{
-  success: true,
-  data: {
-    uploadId: 'uuid',
-    filename: 'visual_feb.xlsx',
-    status: 'processing',
-    estimatedTime: 30 // seconds
-  }
-}
-
-// Poll for status:
-GET /api/upload/{uploadId}/status
-Response:
-{
-  success: true,
-  data: {
-    status: 'completed' | 'processing' | 'failed',
-    recordsImported: 1234,
-    errors: []
-  }
-}
-```
-
----
-
-## 🚀 Implementation Roadmap
-
-### Phase 1: Foundation (Week 1-2)
-**Goal:** Core infrastructure + basic dashboard
-
-**Tasks:**
-1. ✅ **Database Setup**
-   - Create Supabase tables
-   - Add triggers & functions
-   - Create materialized views
-   - Seed sample data
-
-2. ✅ **Design System**
-   - Install shadcn/ui
-   - Configure Tailwind with WCAG colors
-   - Create base components (KPICard, RiskBadge)
-   - Setup typography system
-
-3. ✅ **Layout System**
-   - DashboardLayout with sidebar
-   - Responsive navigation
-   - Page containers
-
-4. ✅ **Core API Routes**
-   - `/api/analytics/overview`
-   - `/api/analytics/trends`
-   - `/api/batches`
-
-5. ✅ **Dashboard Page**
-   - KPI cards
-   - Trend chart
-   - High-risk batch list
-
-**Deliverable:** Functional dashboard with real data (no AI yet)
-
----
-
-### Phase 2: Analytics Pages (Week 3-4)
-**Goal:** Complete all analytics views
-
-**Tasks:**
-1. ✅ **Trends Page**
-   - Time-series charts
-   - Period selectors
-   - Comparison logic
-
-2. ✅ **Defect Analysis Page**
-   - Pareto chart
-   - Defect breakdown table
-   - Drill-down to batch details
-
-3. ✅ **Batch Risk Page**
-   - Filterable batch table
-   - Risk classification logic
-   - Batch detail modal
-
-4. ✅ **Supplier Page**
-   - Supplier ranking table
-   - Performance trend chart
-
-5. ✅ **Reports Page**
-   - Report generator
-   - PDF export (using jsPDF or similar)
-   - Report history
-
-**Deliverable:** Complete analytics dashboard (no AI, no upload yet)
-
----
-
-### Phase 3: Data Ingestion (Week 5)
-**Goal:** Excel upload pipeline
-
-**Tasks:**
-1. ✅ **Upload Page UI**
-   - Drag-drop zone
-   - Upload progress
-   - Upload history table
-
-2. ✅ **Excel Parser**
-   - Schema detection (file type)
-   - Data validation
-   - Error handling
-
-3. ✅ **API Routes**
-   - `/api/upload` (POST)
-   - `/api/upload/{id}/status` (GET)
-   - `/api/upload/history` (GET)
-
-4. ✅ **Supabase Storage**
-   - Upload to storage bucket
-   - File metadata tracking
-
-5. ✅ **Data Transformation**
-   - Normalize Excel → database schema
-   - Batch creation
-   - Inspection record insertion
-
-**Deliverable:** End-to-end upload workflow
-
----
-
-### Phase 4: AI Integration (Week 6-7)
-**Goal:** AI-powered insights
-
-**Tasks:**
-1. ✅ **Gemini API Setup**
-   - Create Gemini client wrapper
-   - Implement prompt templates
-   - Add caching layer
-
-2. ✅ **Health Summary**
-   - Implement `/api/ai/summarize`
-   - Add to dashboard page
-   - Cache for 1 hour
-
-3. ✅ **Root Cause Analysis**
-   - Implement `/api/ai/root-cause`
-   - Add to defect analysis page
-   - Contextual insights
-
-4. ✅ **Predictive Alerts**
-   - Implement `/api/ai/predict`
-   - Add to batch risk page
-   - Confidence scoring
-
-5. ✅ **AI Insight Panel Component**
-   - Reusable AI display component
-   - Loading states
-   - Error handling
-
-**Deliverable:** AI-enhanced dashboard
-
----
-
-### Phase 5: Polish & Optimization (Week 8)
-**Goal:** Production readiness
-
-**Tasks:**
-1. ✅ **Performance**
-   - Implement SWR caching
-   - Optimize database queries
-   - Add loading skeletons
-   - Lazy load charts
-
-2. ✅ **Accessibility**
-   - WCAG AAA audit
-   - Keyboard navigation
-   - Screen reader testing
-   - Focus management
-
-3. ✅ **Error Handling**
-   - Global error boundary
-   - API error states
-   - User-friendly messages
-
-4. ✅ **Testing**
-   - Write Playwright E2E tests
-   - Test upload workflow
-   - Test AI features
-
-5. ✅ **Documentation**
-   - User guide (for GM)
-   - API documentation
-   - Deployment guide
-
-**Deliverable:** Production-ready dashboard
-
----
-
-## 🧪 Testing Strategy
-
-### Unit Tests (Vitest)
-```typescript
-// src/lib/analytics/kpiEngine.test.ts
-describe('KPI Engine', () => {
-  it('calculates rejection rate correctly', () => {
-    const rate = calculateRejectionRate(1000, 82);
-    expect(rate).toBe(8.2);
-  });
-
-  it('classifies risk level correctly', () => {
-    expect(classifyRisk(15.2)).toBe('high_risk');
-    expect(classifyRisk(9.5)).toBe('watch');
-    expect(classifyRisk(5.0)).toBe('normal');
-  });
-});
-```
-
-### Integration Tests (Vitest)
-```typescript
-// src/app/api/analytics/overview/route.test.ts
-describe('GET /api/analytics/overview', () => {
-  it('returns dashboard KPIs', async () => {
-    const response = await GET(new Request('http://localhost/api/analytics/overview'));
-    const data = await response.json();
-    
-    expect(data.success).toBe(true);
-    expect(data.data.rejectionRate).toBeDefined();
-    expect(data.data.highRiskBatches).toBeInstanceOf(Array);
-  });
-});
-```
-
-### E2E Tests (Playwright)
-```typescript
-// tests/e2e/dashboard.spec.ts
-import { test, expect } from '@playwright/test';
-
-test('dashboard loads and displays KPIs', async ({ page }) => {
-  await page.goto('/');
-  
-  // Check KPI cards
-  await expect(page.getByText('Overall Rejection Rate')).toBeVisible();
-  await expect(page.getByText('%')).toBeVisible();
-  
-  // Check AI summary
-  await expect(page.getByText('AI Health Summary')).toBeVisible();
-  
-  // Check chart
-  await expect(page.locator('[data-testid="trend-chart"]')).toBeVisible();
-});
-
-test('upload workflow completes successfully', async ({ page }) => {
-  await page.goto('/settings/upload');
-  
-  // Upload file
-  const fileInput = page.locator('input[type="file"]');
-  await fileInput.setInputFiles('tests/fixtures/sample_inspection.xlsx');
-  
-  // Wait for upload
-  await expect(page.getByText('Upload successful')).toBeVisible({ timeout: 30000 });
-  
-  // Verify in history
-  await expect(page.getByText('sample_inspection.xlsx')).toBeVisible();
-});
-
-test('batch risk filtering works', async ({ page }) => {
-  await page.goto('/batch-risk');
-  
-  // Filter by high risk
-  await page.getByLabel('Risk Filter').selectOption('high_risk');
-  
-  // Verify filtered results
-  const rows = page.locator('table tbody tr');
-  await expect(rows).toHaveCount(3); // Assuming 3 high-risk batches
-  
-  // All should have high risk badge
-  await expect(page.getByText('High Risk')).toHaveCount(3);
-});
-```
-
----
-
-## 🔐 Security Considerations
-
-### Supabase RLS Policies
-```sql
--- Enable RLS on all tables
-ALTER TABLE batches ENABLE ROW LEVEL SECURITY;
-ALTER TABLE inspection_records ENABLE ROW LEVEL SECURITY;
-ALTER TABLE defects ENABLE ROW LEVEL SECURITY;
-
--- For now: Allow all (internal dashboard)
--- Future: Add user authentication and role-based policies
-CREATE POLICY "Allow all for service role"
-ON batches
-FOR ALL
-TO service_role
-USING (true);
-
--- Example future policy (when auth is added):
-CREATE POLICY "Users can view their company's batches"
-ON batches
-FOR SELECT
-TO authenticated
-USING (company_id = auth.uid()::uuid);
-```
-
-### API Rate Limiting
-```typescript
-// Implement simple rate limiting for AI endpoints
-import { Ratelimit } from '@upstash/ratelimit';
-import { Redis } from '@upstash/redis';
-
-const ratelimit = new Ratelimit({
-  redis: Redis.fromEnv(),
-  limiter: Ratelimit.slidingWindow(10, '1 m'), // 10 requests per minute
-});
-
-export async function POST(request: Request) {
-  const ip = request.headers.get('x-forwarded-for') || 'anonymous';
-  const { success } = await ratelimit.limit(ip);
-  
-  if (!success) {
-    return new Response('Rate limit exceeded', { status: 429 });
-  }
-  
-  // ... AI processing
-}
-```
-
-### Input Validation
-```typescript
-// Use Zod for all input validation
-import { z } from 'zod';
-
-const BatchFilterSchema = z.object({
-  risk_level: z.enum(['normal', 'watch', 'high_risk']).optional(),
-  status: z.enum(['in_progress', 'completed', 'scrapped']).optional(),
-  limit: z.coerce.number().min(1).max(100).default(50),
-  offset: z.coerce.number().min(0).default(0),
-});
-
-export async function GET(request: Request) {
-  const { searchParams } = new URL(request.url);
-  const parsed = BatchFilterSchema.safeParse(Object.fromEntries(searchParams));
-  
-  if (!parsed.success) {
-    return NextResponse.json(
-      { success: false, error: { code: 'INVALID_PARAMS', message: parsed.error.message } },
-      { status: 400 }
-    );
-  }
-  
-  // ... use parsed.data
-}
-```
-
----
-
-## 📦 Deployment Guide
-
-### Environment Variables
-```bash
-# .env.production
-NEXT_PUBLIC_SUPABASE_URL=https://your-project.supabase.co
-NEXT_PUBLIC_SUPABASE_ANON_KEY=your-anon-key
-SUPABASE_SERVICE_ROLE_KEY=your-service-role-key
-GEMINI_API_KEY=your-gemini-api-key
-SESSION_SECRET=your-32-char-secret
-NEXT_PUBLIC_APP_URL=https://rais.yourcompany.com
-NODE_ENV=production
-```
-
-### Vercel Deployment
-```bash
-# Install Vercel CLI
-npm i -g vercel
-
-# Deploy
-vercel --prod
-
-# Environment variables are set via Vercel dashboard
-```
-
-### Performance Optimizations
-```typescript
-// next.config.ts
-const config = {
-  experimental: {
-    serverComponentsExternalPackages: ['@google/generative-ai'],
-  },
-  images: {
-    domains: ['lizwjtkymenscifgfcvh.supabase.co'],
-  },
-  // Enable Vercel Analytics
-  analytics: {
-    enabled: true,
-  },
-};
-```
-
----
-
-## 📚 Key Dependencies
-
-```json
-{
-  "dependencies": {
-    "@google/generative-ai": "^0.24.1",     // Gemini AI
-    "@supabase/supabase-js": "^2.93.3",     // Database
-    "@radix-ui/react-*": "latest",          // shadcn/ui primitives
-    "next": "16.1.6",                        // Framework
-    "react": "19.2.3",                       // UI
-    "recharts": "^3.7.0",                    // Charts
-    "swr": "^2.3.8",                         // Data fetching
-    "zustand": "^5.0.10",                    // State management
-    "zod": "^4.3.6",                         // Validation
-    "xlsx": "^0.18.5",                       // Excel parsing
-    "date-fns": "^4.1.0",                    // Date formatting
-    "jspdf": "^2.5.2",                       // PDF export
-    "jspdf-autotable": "^3.8.4"              // PDF tables
-  }
-}
-```
-
----
-
-## ✅ Success Criteria
-
-### Functional
-- [ ] GM can view rejection health in <10 seconds
-- [ ] High-risk batches are clearly highlighted
-- [ ] Excel upload works end-to-end (<1 min for 5000 rows)
-- [ ] AI summaries are accurate and actionable
-- [ ] All charts are responsive and accessible
-
-### Performance
-- [ ] Dashboard loads in <2 seconds (LCP)
-- [ ] API responses <500ms (p95)
-- [ ] AI summaries generate in <3 seconds
-- [ ] Upload processing <30 seconds for typical file
-
-### Accessibility
-- [ ] WCAG AAA compliance (7:1 contrast ratio)
-- [ ] Full keyboard navigation
-- [ ] Screen reader compatible
-- [ ] No accessibility errors in Lighthouse
-
-### User Experience
-- [ ] No raw data visible by default
-- [ ] One business question per page
-- [ ] Clear call-to-action buttons
-- [ ] Error messages are user-friendly
-- [ ] Mobile-responsive (tablet minimum)
-
----
-
-## 🎯 Next Steps
-
-1. **Review this plan** - Get stakeholder approval
-2. **Setup Supabase** - Create tables and seed data
-3. **Install shadcn/ui** - Setup design system
-4. **Build Phase 1** - Dashboard foundation
-5. **Iterate and test** - Get GM feedback early and often
-
----
-
-**Document Version:** 1.0  
-**Last Updated:** 2026-02-03  
-**Author:** Hephaestus (AI Architect)  
-**Status:** Ready for Implementation
+Create the new migration file and apply it.

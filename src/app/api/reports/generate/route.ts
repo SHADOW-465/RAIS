@@ -20,14 +20,6 @@ const reportConfigs = {
     name: 'Defect Pareto Report',
     description: 'Top defect contributors and 80/20 analysis',
   },
-  batch_risk: {
-    name: 'Batch Risk Report',
-    description: 'High-risk and watch-level batch details',
-  },
-  supplier_performance: {
-    name: 'Supplier Performance',
-    description: 'Supplier quality rankings and trends',
-  },
 };
 
 interface ReportRequest {
@@ -111,10 +103,6 @@ async function generateReportData(reportType: string, period: string) {
       return await generateMonthlySummary(startDate, endDate);
     case 'defect_pareto':
       return await generateDefectPareto(startDate, endDate);
-    case 'batch_risk':
-      return await generateBatchRisk(startDate, endDate);
-    case 'supplier_performance':
-      return await generateSupplierPerformance(startDate, endDate);
     default:
       return [];
   }
@@ -177,7 +165,7 @@ async function generateDefectPareto(startDate: Date, endDate: Date) {
     }
 
     // Aggregate by defect type
-    const aggregated = defects.reduce((acc, d) => {
+    const aggregated = defects.reduce((acc: any, d: any) => {
       const key = d.defect_type || 'Unknown';
       if (!acc[key]) {
         acc[key] = { type: key, category: d.defect_category || 'other', count: 0 };
@@ -187,12 +175,12 @@ async function generateDefectPareto(startDate: Date, endDate: Date) {
     }, {} as Record<string, { type: string; category: string; count: number }>);
 
     const sorted = Object.values(aggregated)
-      .sort((a, b) => b.count - a.count);
+      .sort((a: any, b: any) => b.count - a.count);
 
-    const total = sorted.reduce((sum, d) => sum + d.count, 0);
+    const total = sorted.reduce((sum: number, d: any) => sum + d.count, 0);
     
     let cumulative = 0;
-    const withPercentages = sorted.map(d => {
+    const withPercentages = sorted.map((d: any) => {
       cumulative += d.count;
       return [
         d.type,
@@ -209,102 +197,6 @@ async function generateDefectPareto(startDate: Date, endDate: Date) {
     ];
   } catch (error) {
     console.error('Error generating defect pareto:', error);
-    return [];
-  }
-}
-
-/**
- * Generate batch risk data
- */
-async function generateBatchRisk(startDate: Date, endDate: Date) {
-  try {
-    const { data: batches, error } = await supabaseAdmin
-      .from('batches')
-      .select('*')
-      .in('risk_level', ['high_risk', 'watch'])
-      .gte('production_date', startDate.toISOString().split('T')[0])
-      .lte('production_date', endDate.toISOString().split('T')[0])
-      .order('rejected_quantity', { ascending: false });
-
-    if (error || !batches) {
-      return [];
-    }
-
-    const data = batches.map(b => {
-      const rejectionRate = b.produced_quantity > 0 
-        ? ((b.rejected_quantity / b.produced_quantity) * 100).toFixed(2)
-        : '0.00';
-
-      return [
-        b.batch_number,
-        b.product_code || 'N/A',
-        b.produced_quantity?.toString() || '0',
-        b.rejected_quantity?.toString() || '0',
-        `${rejectionRate}%`,
-        b.risk_level,
-        b.production_date,
-      ];
-    });
-
-    return [
-      ['Batch Number', 'Product Code', 'Produced', 'Rejected', 'Rejection Rate', 'Risk Level', 'Production Date'],
-      ...data,
-    ];
-  } catch (error) {
-    console.error('Error generating batch risk report:', error);
-    return [];
-  }
-}
-
-/**
- * Generate supplier performance data
- */
-async function generateSupplierPerformance(startDate: Date, endDate: Date) {
-  try {
-    // Get suppliers with their batch data
-    const { data: suppliers, error } = await supabaseAdmin
-      .from('suppliers')
-      .select('*, batch_suppliers:batch_suppliers(batch:batches(produced_quantity, rejected_quantity, production_date))')
-      .eq('is_active', true);
-
-    if (error || !suppliers) {
-      return [];
-    }
-
-    const data = suppliers.map(s => {
-      const batches = s.batch_suppliers?.map((bs: { batch?: { produced_quantity?: number; rejected_quantity?: number } }) => bs.batch).filter(Boolean) || [];
-      const totalProduced = batches.reduce((sum: number, b: { produced_quantity?: number }) => sum + (b.produced_quantity || 0), 0);
-      const totalRejected = batches.reduce((sum: number, b: { rejected_quantity?: number }) => sum + (b.rejected_quantity || 0), 0);
-      const rejectionRate = totalProduced > 0 ? ((totalRejected / totalProduced) * 100).toFixed(2) : '0.00';
-
-      // Determine grade
-      let grade = 'good';
-      const rate = parseFloat(rejectionRate);
-      if (rate >= 15) grade = 'poor';
-      else if (rate >= 8) grade = 'fair';
-      else if (rate < 5) grade = 'excellent';
-
-      return [
-        s.supplier_code,
-        s.supplier_name,
-        batches.length.toString(),
-        totalProduced.toString(),
-        totalRejected.toString(),
-        `${rejectionRate}%`,
-        grade,
-        s.rating?.toString() || '0',
-      ];
-    });
-
-    // Sort by rejection rate (worst first)
-    const sorted = data.sort((a, b) => parseFloat(b[5]) - parseFloat(a[5]));
-
-    return [
-      ['Supplier Code', 'Supplier Name', 'Batches', 'Produced', 'Rejected', 'Rejection Rate', 'Grade', 'Rating'],
-      ...sorted,
-    ];
-  } catch (error) {
-    console.error('Error generating supplier performance:', error);
     return [];
   }
 }

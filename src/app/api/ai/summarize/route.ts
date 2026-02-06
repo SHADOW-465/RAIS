@@ -1,66 +1,133 @@
 /**
  * AI Summarize API Route
- * POST /api/ai/summarize
+ * GET /api/ai/summarize
+ * 
+ * Generates an AI health summary based on current system data.
+ * Fetches data internally from KPI engine - no client payload needed.
  */
 
 import { NextRequest, NextResponse } from 'next/server';
-import { z } from 'zod';
 import { generateHealthSummary } from '@/lib/ai/gemini';
+import { getOverviewKPIs, getTrendData, getParetoData } from '@/lib/analytics/kpiQueries';
+import { isConfigured } from '@/lib/db/client';
+import { SessionStore } from '@/lib/db/sessionStore';
+import { LocalStore } from '@/lib/db/localStore';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
-// Request body schema
-const SummarizeRequestSchema = z.object({
-  rejectionRate: z.number().min(0).max(100),
-  trend: z.enum(['up', 'down', 'stable']),
-  rejectedCount: z.number().min(0),
-  highRiskBatches: z.array(
-    z.object({
-      batchNumber: z.string(),
-      rejectionRate: z.number(),
-    })
-  ),
-  topDefect: z.object({
-    type: z.string(),
-    percentage: z.number(),
-  }),
-});
+export async function GET(request: NextRequest) {
+  const sessionId = request.headers.get('x-rais-session-id');
 
-type SummarizeRequest = z.infer<typeof SummarizeRequestSchema>;
-
-/**
- * Generate AI health summary from KPI data
- */
-export async function POST(request: NextRequest) {
   try {
-    // Parse and validate request body
-    const body = await request.json();
-    const parseResult = SummarizeRequestSchema.safeParse(body);
+    const searchParams = request.nextUrl.searchParams;
+    const period = searchParams.get('period') || '30d';
+    const periodDays = parsePeriodToDays(period);
 
-    if (!parseResult.success) {
-      return NextResponse.json(
-        {
-          success: false,
-          error: {
-            code: 'VALIDATION_ERROR',
-            message: 'Invalid request body',
-            details: parseResult.error.flatten().fieldErrors,
-          },
-        },
-        { status: 400 }
-      );
+    // Initial Decision: Session or Local (or Mock if not configured)
+    let useLocalMode = !!sessionId || !isConfigured;
+    let overviewData, trendData, paretoData;
+
+    // A. DATABASE MODE (Try first if configured)
+    if (!useLocalMode) {
+      try {
+        // Fetch all required data in parallel
+        const [overviewResult, trendResult, paretoResult] = await Promise.all([
+          getOverviewKPIs(periodDays),
+          getTrendData(periodDays),
+          getParetoData()
+        ]);
+
+        if (!overviewResult.success || !trendResult.success || !paretoResult.success) {
+          throw new Error('Failed to fetch underlying KPI data for analysis');
+        }
+
+        overviewData = overviewResult.data;
+        trendData = trendResult.data;
+        paretoData = paretoResult.data;
+      } catch (dbError) {
+        console.warn('Database unavailable for AI Summary, falling back to local store:', dbError);
+        useLocalMode = true; // Fallback to Local Mode
+      }
     }
 
-    const data: SummarizeRequest = parseResult.data;
+    // B. LOCAL / SESSION MODE (Fallback or Explicit)
+    if (useLocalMode) {
+      console.log(`[AI Summarize] Using JSON Store (Session: ${sessionId || 'none'}, Configured: ${isConfigured})`);
+      let db;
+      if (sessionId) {
+        db = SessionStore.read(sessionId);
+      } else {
+        db = LocalStore.read();
+      }
 
-    // Generate AI summary
+      // Calculate overview from JSON DB
+      const produced = db.overview.produced;
+      const rejected = db.overview.rejected;
+      const rate = produced > 0 ? (rejected / produced) * 100 : 0;
+
+      overviewData = {
+        rejection: { rate, trend: 'stable' as const },
+        volume: { rejected }
+      };
+
+      // Calculate trend from JSON DB (simplified)
+      const timeline = Object.entries(db.overview.days).map(([date, day]) => ({
+        date,
+        rejection_rate: day.produced > 0 ? (day.rejected / day.produced) * 100 : 0,
+        risk_level: (day.produced > 0 && (day.rejected / day.produced) > 0.15) ? 'high_risk' : 'normal',
+        produced: day.produced
+      })).sort((a, b) => a.date.localeCompare(b.date));
+
+      trendData = { timeline };
+
+      // Calculate pareto from JSON DB
+      const sortedDefects = Object.entries(db.defects)
+        .map(([code, data]) => ({
+          defect_code: code,
+          display_name: code,
+          total_quantity: data.count,
+          percentage: (data.count / (rejected || 1)) * 100
+        }))
+        .sort((a, b) => b.total_quantity - a.total_quantity);
+
+      paretoData = { defects: sortedDefects };
+    }
+
+    // 2. Prepare data for AI
+    if (!overviewData || !trendData || !paretoData) {
+      return NextResponse.json({
+        success: true,
+        data: null, // No data to analyze
+        message: 'Insufficient data for analysis'
+      });
+    }
+
+    // Filter high risk days (rate > 15%)
+    const highRiskDays = trendData.timeline
+      .filter((d: any) => d.risk_level === 'high_risk')
+      .map((d: any) => ({
+        date: d.date,
+        rejectionRate: d.rejection_rate,
+        produced: d.produced
+      }))
+      .sort((a: any, b: any) => b.rejectionRate - a.rejectionRate)
+      .slice(0, 5);
+
+    // Get top defect
+    const topDefectObj = paretoData.defects[0];
+    const topDefect = topDefectObj ? {
+      type: (topDefectObj as any).display_name || (topDefectObj as any).defect_code,
+      percentage: (topDefectObj as any).percentage
+    } : { type: 'None', percentage: 0 };
+
+    // 3. Generate Insight
     const insight = await generateHealthSummary({
-      rejectionRate: data.rejectionRate,
-      trend: data.trend,
-      rejectedCount: data.rejectedCount,
-      highRiskBatches: data.highRiskBatches,
-      topDefect: data.topDefect,
+      rejectionRate: (overviewData as any).rejection.rate,
+      trend: (overviewData as any).rejection.trend,
+      rejectedCount: (overviewData as any).volume.rejected,
+      highRiskDays: highRiskDays,
+      topDefect: topDefect,
     });
 
     return NextResponse.json({
@@ -76,15 +143,16 @@ export async function POST(request: NextRequest) {
       meta: {
         timestamp: new Date().toISOString(),
         cached: !!insight.last_accessed_at,
+        period
       },
     });
+
   } catch (error) {
     console.error('AI Summarize error:', error);
+    // ... rest of error handling
 
-    // Check if it's a Gemini API error
     const errorMessage = error instanceof Error ? error.message : 'Failed to generate AI summary';
-    const isApiKeyError =
-      errorMessage.includes('API key') || errorMessage.includes('GEMINI_API_KEY');
+    const isApiKeyError = errorMessage.includes('API key');
 
     return NextResponse.json(
       {
@@ -100,22 +168,15 @@ export async function POST(request: NextRequest) {
 }
 
 /**
- * GET endpoint returns usage info
+ * Parse period string to number of days
  */
-export async function GET() {
-  return NextResponse.json({
-    success: true,
-    data: {
-      endpoint: '/api/ai/summarize',
-      method: 'POST',
-      description: 'Generate AI health summary from KPI data',
-      requiredFields: {
-        rejectionRate: 'number (0-100)',
-        trend: 'string (up|down|stable)',
-        rejectedCount: 'number',
-        highRiskBatches: 'array of { batchNumber, rejectionRate }',
-        topDefect: '{ type, percentage }',
-      },
-    },
-  });
+function parsePeriodToDays(period: string): number {
+  const periodMap: Record<string, number> = {
+    '7d': 7,
+    '14d': 14,
+    '30d': 30,
+    '60d': 60,
+    '90d': 90,
+  };
+  return periodMap[period] || 30;
 }
