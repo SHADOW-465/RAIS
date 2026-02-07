@@ -86,6 +86,13 @@ class ProcessingStatusResponse(BaseModel):
     errors: list[str] = []
     started_at: datetime
     completed_at: Optional[datetime] = None
+    
+    # Extended History Fields
+    file_name: Optional[str] = None
+    file_size_bytes: Optional[int] = None
+    records_valid: Optional[int] = None
+    records_invalid: Optional[int] = None
+    detected_file_type: Optional[FileType] = None
 
 
 # ============================================================================

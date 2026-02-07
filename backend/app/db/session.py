@@ -259,9 +259,99 @@ async def get_latest_stats() -> dict | None:
             
     return None
 
+async def get_all_sessions(limit: int = 50) -> list[dict]:
+    """Get recent upload sessions with detailed stats"""
+    async with aiosqlite.connect(SQLITE_DB_PATH) as db:
+        db.row_factory = aiosqlite.Row
+        async with db.execute(
+            """
+            SELECT u.*, p.validated_data, p.raw_data 
+            FROM upload_sessions u 
+            LEFT JOIN processed_data p ON u.upload_id = p.upload_id 
+            ORDER BY u.created_at DESC LIMIT ?
+            """,
+            (limit,)
+        ) as cursor:
+            rows = await cursor.fetchall()
+            
+            results = []
+            for row in rows:
+                # Extract filename from file_paths if available
+                file_name = None
+                file_size_bytes = 0
+                file_type = None
+                
+                try:
+                    paths = json.loads(row["file_paths"] if "file_paths" in row.keys() else "[]")
+                    if paths and len(paths) > 0:
+                        p = Path(paths[0])
+                        file_name = p.name
+                        if p.exists():
+                            file_size_bytes = p.stat().st_size
+                except:
+                    pass
+                
+                # Extract validation stats
+                records_valid = 0
+                records_invalid = 0
+                
+                if row["validated_data"]:
+                    try:
+                        val_data = json.loads(row["validated_data"])
+                        records_valid = val_data.get("valid_rows", 0)
+                        records_invalid = val_data.get("error_rows", 0)
+                    except:
+                        pass
+                
+                # Try to detect file type from raw_data if available
+                if row["raw_data"]:
+                     try:
+                        raw = json.loads(row["raw_data"])
+                        # Raw data keys are file types (e.g. "production_cumulative": [...])
+                        # We take the first key that is not 'unknown' if possible
+                        for k in raw.keys():
+                            if k != "unknown":
+                                file_type = k
+                                break
+                        if not file_type and raw.keys():
+                            file_type = list(raw.keys())[0]
+                     except:
+                        pass
+
+                results.append({
+                    "upload_id": UUID(row["upload_id"]),
+                    "status": ProcessingStatus(row["status"]),
+                    "progress_percent": row["progress_percent"],
+                    "current_stage": row["current_stage"],
+                    "files_received": row["files_received"],
+                    "files_processed": row["files_processed"],
+                    "errors": json.loads(row["errors"]),
+                    "started_at": datetime.fromisoformat(row["started_at"]),
+                    "completed_at": datetime.fromisoformat(row["completed_at"]) if row["completed_at"] else None,
+                    "file_name": file_name,
+                    "file_size_bytes": file_size_bytes,
+                    "records_valid": records_valid,
+                    "records_invalid": records_invalid,
+                    "detected_file_type": file_type
+                })
+            return results
+
 async def reset_db():
-    """Clear all data from the database"""
+    """Clear all data from the database (SQLite AND Postgres)"""
+    # 1. Clear SQLite
     async with aiosqlite.connect(SQLITE_DB_PATH) as db:
         await db.execute("DELETE FROM processed_data")
         await db.execute("DELETE FROM upload_sessions")
         await db.commit()
+    
+    # 2. Clear Postgres (Supabase)
+    if pg_engine:
+        try:
+            async with pg_engine.begin() as conn:
+                await conn.execute(text("DELETE FROM analytics_kpis"))
+                # Also generic clear for other potential tables if they exist
+                # await conn.execute(text("TRUNCATE TABLE production_summary, defect_occurrence CASCADE")) 
+                # Keeping it safe with just analytics_kpis for now as that's what we explicitly insert
+        except Exception as e:
+            print(f"Failed to clear Postgres DB: {e}")
+

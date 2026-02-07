@@ -36,19 +36,16 @@ export const SessionProvider = ({ children }: { children: React.ReactNode }) => 
     }, []);
 
     const resetSession = async () => {
-        // Call API to clear backend session data
-        if (sessionId) {
-            try {
-                await fetch('/api/session/reset', {
-                    method: 'POST',
-                    headers: { 'x-rais-session-id': sessionId }
-                });
-            } catch (e) {
-                console.error('Failed to clear backend session', e);
-            }
+        // Call Python Backend API to clear all data
+        try {
+            // Import dynamically to avoid server-side issues if any
+            const { backendApi } = await import('@/lib/api/backend');
+            await backendApi.resetDatabase();
+        } catch (e) {
+            console.error('Failed to clear backend database', e);
         }
 
-        // Generate new ID
+        // Generate new ID for frontend session
         const newId = uuidv4();
         sessionStorage.setItem('rais_session_id', newId);
         setSessionId(newId);

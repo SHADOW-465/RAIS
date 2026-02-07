@@ -139,6 +139,33 @@ async def cancel_upload(upload_id: UUID):
     return {"message": "Upload cancelled", "upload_id": str(upload_id)}
 
 
+@router.get("/uploads", response_model=list[ProcessingStatusResponse])
+async def get_upload_history():
+    """
+    Get history of recent uploads.
+    """
+    from app.db import get_all_sessions
+    sessions = await get_all_sessions()
+    return [
+        ProcessingStatusResponse(
+            upload_id=s["upload_id"],
+            status=s["status"],
+            progress_percent=s["progress_percent"],
+            current_stage=s["current_stage"],
+            files_processed=s["files_processed"],
+            total_files=s["files_received"],
+            errors=s["errors"],
+            started_at=s["started_at"],
+            completed_at=s["completed_at"],
+            file_name=s.get("file_name"),
+            file_size_bytes=s.get("file_size_bytes"),
+            records_valid=s.get("records_valid"),
+            records_invalid=s.get("records_invalid"),
+            detected_file_type=s.get("detected_file_type")
+        )
+        for s in sessions
+    ]
+
 @router.post("/reset")
 async def reset_database():
     """Clear all processed data and session history"""
