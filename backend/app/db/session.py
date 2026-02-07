@@ -20,7 +20,9 @@ SQLITE_DB_PATH = Path("./rais_sessions.db")
 # We only initialize this if the URL starts with 'postgresql'
 pg_engine = None
 if settings.database_url and settings.database_url.startswith("postgresql"):
-    pg_engine = create_async_engine(settings.database_url, echo=False)
+    # Ensure usage of asyncpg driver, as default is psycopg2 (sync)
+    db_url = settings.database_url.replace("postgresql://", "postgresql+asyncpg://")
+    pg_engine = create_async_engine(db_url, echo=False)
 
 async def init_db():
     """Initialize the SQLite database with required tables"""
