@@ -1,23 +1,30 @@
 """
 RAIS Backend - Database Session Management
-SQLite for processing state and session storage
+Hybrid approach: SQLite for processing state, Supabase (Postgres) for persistent data storage
 """
 import aiosqlite
+import json
 from pathlib import Path
 from datetime import datetime
 from uuid import UUID
-import json
-
+from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession
+from sqlalchemy.orm import sessionmaker
+from sqlalchemy import text
 from app.config import settings
 from app.models import ProcessingStatus
 
-# Database path
-DB_PATH = Path("./rais_sessions.db")
+# SQLite path for temporary session state (ephemeral)
+SQLITE_DB_PATH = Path("./rais_sessions.db")
 
+# Supabase Postgres Engine (for persistent storage)
+# We only initialize this if the URL starts with 'postgresql'
+pg_engine = None
+if settings.database_url and settings.database_url.startswith("postgresql"):
+    pg_engine = create_async_engine(settings.database_url, echo=False)
 
 async def init_db():
     """Initialize the SQLite database with required tables"""
-    async with aiosqlite.connect(DB_PATH) as db:
+    async with aiosqlite.connect(SQLITE_DB_PATH) as db:
         # Upload sessions table
         await db.execute("""
             CREATE TABLE IF NOT EXISTS upload_sessions (
@@ -49,10 +56,13 @@ async def init_db():
         
         await db.commit()
 
+    # Initialize Postgres tables if connected
+    if pg_engine:
+        pass # Schema is managed via Supabase / SQL scripts, so we don't auto-create tables here to avoid conflicts
 
 async def create_session(upload_id: UUID, files_received: int) -> dict:
     """Create a new upload session"""
-    async with aiosqlite.connect(DB_PATH) as db:
+    async with aiosqlite.connect(SQLITE_DB_PATH) as db:
         now = datetime.utcnow().isoformat()
         await db.execute(
             """
@@ -71,7 +81,6 @@ async def create_session(upload_id: UUID, files_received: int) -> dict:
         "started_at": now
     }
 
-
 async def update_session(
     upload_id: UUID,
     status: ProcessingStatus = None,
@@ -82,7 +91,7 @@ async def update_session(
     completed_at: datetime = None
 ):
     """Update session status"""
-    async with aiosqlite.connect(DB_PATH) as db:
+    async with aiosqlite.connect(SQLITE_DB_PATH) as db:
         updates = []
         params = []
         
@@ -113,10 +122,9 @@ async def update_session(
             )
             await db.commit()
 
-
 async def get_session(upload_id: UUID) -> dict | None:
     """Get session by ID"""
-    async with aiosqlite.connect(DB_PATH) as db:
+    async with aiosqlite.connect(SQLITE_DB_PATH) as db:
         db.row_factory = aiosqlite.Row
         async with db.execute(
             "SELECT * FROM upload_sessions WHERE upload_id = ?",
@@ -137,61 +145,70 @@ async def get_session(upload_id: UUID) -> dict | None:
                 }
             return None
 
-
 async def save_processed_data(upload_id: UUID, raw_data: dict = None, validated_data: dict = None, computed_stats: dict = None):
-    """Save processed data for a session"""
-    async with aiosqlite.connect(DB_PATH) as db:
-        # Check if exists
-        async with db.execute(
-            "SELECT upload_id FROM processed_data WHERE upload_id = ?",
-            (str(upload_id),)
-        ) as cursor:
+    """Save processed data for a session (SQLite) AND sync to Supabase (Postgres)"""
+    
+    # 1. Save to SQLite (Immediate Cache)
+    async with aiosqlite.connect(SQLITE_DB_PATH) as db:
+        async with db.execute("SELECT upload_id FROM processed_data WHERE upload_id = ?", (str(upload_id),)) as cursor:
             exists = await cursor.fetchone()
         
+        raw_json = json.dumps(raw_data, default=str) if raw_data else None
+        val_json = json.dumps(validated_data, default=str) if validated_data else None
+        stats_json = json.dumps(computed_stats, default=str) if computed_stats else None
+
         if exists:
             updates = []
             params = []
-            if raw_data is not None:
+            if raw_data: 
                 updates.append("raw_data = ?")
-                params.append(json.dumps(raw_data, default=str))
-            if validated_data is not None:
+                params.append(raw_json)
+            if validated_data:
                 updates.append("validated_data = ?")
-                params.append(json.dumps(validated_data, default=str))
-            if computed_stats is not None:
+                params.append(val_json)
+            if computed_stats:
                 updates.append("computed_stats = ?")
-                params.append(json.dumps(computed_stats, default=str))
-            
+                params.append(stats_json)
             if updates:
                 params.append(str(upload_id))
-                await db.execute(
-                    f"UPDATE processed_data SET {', '.join(updates)} WHERE upload_id = ?",
-                    params
-                )
+                await db.execute(f"UPDATE processed_data SET {', '.join(updates)} WHERE upload_id = ?", params)
         else:
             await db.execute(
-                """
-                INSERT INTO processed_data (upload_id, raw_data, validated_data, computed_stats)
-                VALUES (?, ?, ?, ?)
-                """,
-                (
-                    str(upload_id),
-                    json.dumps(raw_data, default=str) if raw_data else None,
-                    json.dumps(validated_data, default=str) if validated_data else None,
-                    json.dumps(computed_stats, default=str) if computed_stats else None
-                )
+                "INSERT INTO processed_data (upload_id, raw_data, validated_data, computed_stats) VALUES (?, ?, ?, ?)",
+                (str(upload_id), raw_json, val_json, stats_json)
             )
-        
         await db.commit()
 
+    # 2. Sync to Supabase (Persistent Storage) if engine is configured
+    if pg_engine and computed_stats:
+        try:
+            async with pg_engine.begin() as conn:
+                # Insert KPI snapshot
+                if 'kpis' in computed_stats:
+                    kpis = computed_stats['kpis']
+                    await conn.execute(text("""
+                        INSERT INTO analytics_kpis (
+                            rejection_rate, total_produced, total_rejected, yield_rate, financial_loss
+                        ) VALUES (:rr, :tp, :tr, :yr, :fl)
+                    """), {
+                        "rr": kpis.get('rejection_rate'),
+                        "tp": kpis.get('total_produced'),
+                        "tr": kpis.get('total_rejected'),
+                        "yr": kpis.get('yield_rate'),
+                        "fl": kpis.get('financial_loss')
+                    })
+                
+                # We could add more specific inserts for other tables from your schema here
+                # For now, we are persisting the critical KPIs which drives the dashboard history
+        except Exception as e:
+            print(f"Supabase Sync Failed: {e}") 
+            # Non-blocking, we don't fail the request if sync fails, but we log it.
 
 async def get_processed_data(upload_id: UUID) -> dict | None:
     """Get processed data by upload ID"""
-    async with aiosqlite.connect(DB_PATH) as db:
+    async with aiosqlite.connect(SQLITE_DB_PATH) as db:
         db.row_factory = aiosqlite.Row
-        async with db.execute(
-            "SELECT * FROM processed_data WHERE upload_id = ?",
-            (str(upload_id),)
-        ) as cursor:
+        async with db.execute("SELECT * FROM processed_data WHERE upload_id = ?", (str(upload_id),)) as cursor:
             row = await cursor.fetchone()
             if row:
                 return {
@@ -201,28 +218,48 @@ async def get_processed_data(upload_id: UUID) -> dict | None:
                 }
             return None
 
-
 async def get_latest_stats() -> dict | None:
-    """Get the most recent computed stats"""
-    async with aiosqlite.connect(DB_PATH) as db:
+    """Get the most recent computed stats (Prefer SQLite for speed, Fallback to Supabase if empty)"""
+    
+    # Try SQLite first
+    async with aiosqlite.connect(SQLITE_DB_PATH) as db:
         db.row_factory = aiosqlite.Row
         async with db.execute(
-            """
-            SELECT computed_stats FROM processed_data 
-            WHERE computed_stats IS NOT NULL 
-            ORDER BY created_at DESC 
-            LIMIT 1
-            """
+            "SELECT computed_stats FROM processed_data WHERE computed_stats IS NOT NULL ORDER BY created_at DESC LIMIT 1"
         ) as cursor:
             row = await cursor.fetchone()
             if row and row["computed_stats"]:
                 return json.loads(row["computed_stats"])
-            return None
-
+    
+    # If SQLite empty (e.g. after restart), try Supabase
+    if pg_engine:
+        try:
+            async with pg_engine.connect() as conn:
+                result = await conn.execute(text("SELECT * FROM analytics_kpis ORDER BY created_at DESC LIMIT 1"))
+                row = result.fetchone()
+                if row:
+                    # Construct a partial stats object from the DB record to keep dashboard populated
+                    return {
+                        "has_data": True,
+                        "kpis": {
+                            "rejection_rate": row.rejection_rate,
+                            "total_produced": row.total_produced,
+                            "total_rejected": row.total_rejected,
+                            "yield_rate": row.yield_rate,
+                            "financial_loss": row.financial_loss,
+                            "rejection_trend": "stable", # Calculated trend requires historical query
+                            "rejection_rate_change": 0
+                        },
+                        "meta": {"source": "supabase_archive"}
+                    }
+        except Exception:
+            pass
+            
+    return None
 
 async def reset_db():
     """Clear all data from the database"""
-    async with aiosqlite.connect(DB_PATH) as db:
+    async with aiosqlite.connect(SQLITE_DB_PATH) as db:
         await db.execute("DELETE FROM processed_data")
         await db.execute("DELETE FROM upload_sessions")
         await db.commit()
