@@ -30,12 +30,86 @@ export interface ProcessingStatusResponse {
   detected_file_type?: string;
 }
 
+export interface DataSource {
+  file_name: string;
+  sheet_name: string;
+  row_numbers: number[];
+  column_name?: string;
+}
+
+export interface KPIData {
+  rejection_rate: number;
+  rejection_rate_change: number;
+  rejection_trend: 'up' | 'down' | 'stable';
+  yield_rate: number;
+  total_produced: number;
+  total_dispatched: number;
+  total_rejected: number;
+  production_date: string;
+  financial_impact: number;
+  watch_batches: number;
+  sources: DataSource[];
+}
+
+export interface StageKPI {
+  stage_code: string;
+  stage_name: string;
+  inspected: number;
+  accepted: number;
+  rejected: number;
+  rejection_rate: number;
+  contribution_percent: number;
+}
+
+export interface TrendDataPoint {
+  date: string;
+  value: number;
+  label?: string;
+}
+
+export interface TrendSeries {
+  name: string;
+  data: TrendDataPoint[];
+  color?: string;
+}
+
+export interface TrendChart {
+  title: string;
+  x_label: string;
+  y_label: string;
+  series: TrendSeries[];
+}
+
+export interface DefectData {
+  defect_code: string;
+  defect_name: string;
+  category: string;
+  severity: string;
+  count: number;
+  percentage: number;
+  cumulative_percentage: number;
+}
+
+export interface ParetoChart {
+  title: string;
+  defects: DefectData[];
+  threshold_80: number;
+}
+
+export interface DefectTrend {
+  defect_code: string;
+  defect_name: string;
+  monthly_data: TrendDataPoint[];
+  average_rate: number;
+  trend_direction: 'increasing' | 'decreasing' | 'stable';
+}
+
 export interface StatsResponse {
-  kpis: any;
-  stage_kpis: any[];
-  rejection_trend: any;
-  defect_pareto: any;
-  visual_defect_trends: any[];
+  kpis: KPIData;
+  stage_kpis: StageKPI[];
+  rejection_trend: TrendChart;
+  defect_pareto: ParetoChart;
+  visual_defect_trends: DefectTrend[];
   ai_summary: string | null;
   generated_at: string;
 }
