@@ -18,7 +18,7 @@ import {
   Bar,
 } from 'recharts';
 import Link from 'next/link';
-import { StatsResponse, backendApi } from '@/lib/api/backend';
+import { StatsResponse, backendApi, TrendDataPoint } from '@/lib/api/backend';
 
 // Backend URL
 const BACKEND_URL = process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:8000';
@@ -73,7 +73,7 @@ export default function DashboardPage() {
   const aiSummary = statsData?.ai_summary;
 
   // Transform trend data for Recharts
-  const trendChartData = rejectionTrend?.series?.[0]?.data?.map(point => ({
+  const trendChartData = rejectionTrend?.series?.[0]?.data?.map((point: TrendDataPoint) => ({
     date: point.label || point.date,
     rejectionRate: point.value,
   })) || [];
@@ -309,8 +309,8 @@ export default function DashboardPage() {
             </CardHeader>
             <CardContent>
               <div className={`p-4 rounded-lg border-l-4 ${aiSummary.includes('⚠️') ? 'bg-orange-50 border-orange-400' :
-                  aiSummary.includes('✓') ? 'bg-green-50 border-green-400' :
-                    'bg-blue-50 border-blue-400'
+                aiSummary.includes('✓') ? 'bg-green-50 border-green-400' :
+                  'bg-blue-50 border-blue-400'
                 }`}>
                 <p className="text-lg text-gray-800">{aiSummary}</p>
               </div>
@@ -344,8 +344,8 @@ export default function DashboardPage() {
                         <td className="py-4 px-4 text-right">{stage.rejected.toLocaleString()}</td>
                         <td className="py-4 px-4 text-right">
                           <span className={`px-2 py-1 rounded-full text-sm font-medium ${stage.rejection_rate > 10 ? 'bg-red-100 text-red-700' :
-                              stage.rejection_rate > 5 ? 'bg-amber-100 text-amber-700' :
-                                'bg-green-100 text-green-700'
+                            stage.rejection_rate > 5 ? 'bg-amber-100 text-amber-700' :
+                              'bg-green-100 text-green-700'
                             }`}>
                             {stage.rejection_rate.toFixed(1)}%
                           </span>
