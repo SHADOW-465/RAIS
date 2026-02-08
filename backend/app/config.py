@@ -14,11 +14,7 @@ class Settings(BaseSettings):
     api_prefix: str = "/api"
     
     # CORS Settings
-    cors_origins: list[str] = [
-        "http://localhost:3000", 
-        "http://127.0.0.1:3000",
-        "https://rais-blush.vercel.app"
-    ]
+    cors_origins: list[str] = ["*"]
     
     # File Upload Settings
     max_file_size_mb: int = 10

@@ -276,64 +276,69 @@ async def get_all_sessions(limit: int = 50) -> list[dict]:
             
             results = []
             for row in rows:
-                # Extract filename from file_paths if available
-                file_name = None
-                file_size_bytes = 0
-                file_type = None
-                
                 try:
-                    paths = json.loads(row["file_paths"] if "file_paths" in row.keys() else "[]")
-                    if paths and len(paths) > 0:
-                        p = Path(paths[0])
-                        file_name = p.name
-                        if p.exists():
-                            file_size_bytes = p.stat().st_size
-                except:
-                    pass
-                
-                # Extract validation stats
-                records_valid = 0
-                records_invalid = 0
-                
-                if row["validated_data"]:
+                    # Extract filename from file_paths if available
+                    file_name = None
+                    file_size_bytes = 0
+                    file_type = None
+                    
                     try:
-                        val_data = json.loads(row["validated_data"])
-                        records_valid = val_data.get("valid_rows", 0)
-                        records_invalid = val_data.get("error_rows", 0)
+                        paths = json.loads(row["file_paths"] if "file_paths" in row.keys() else "[]")
+                        if paths and len(paths) > 0:
+                            p = Path(paths[0])
+                            file_name = p.name
+                            if p.exists():
+                                file_size_bytes = p.stat().st_size
                     except:
                         pass
-                
-                # Try to detect file type from raw_data if available
-                if row["raw_data"]:
-                     try:
-                        raw = json.loads(row["raw_data"])
-                        # Raw data keys are file types (e.g. "production_cumulative": [...])
-                        # We take the first key that is not 'unknown' if possible
-                        for k in raw.keys():
-                            if k != "unknown":
-                                file_type = k
-                                break
-                        if not file_type and raw.keys():
-                            file_type = list(raw.keys())[0]
-                     except:
-                        pass
+                    
+                    # Extract validation stats
+                    records_valid = 0
+                    records_invalid = 0
+                    
+                    if row["validated_data"]:
+                        try:
+                            val_data = json.loads(row["validated_data"])
+                            records_valid = val_data.get("valid_rows", 0)
+                            records_invalid = val_data.get("error_rows", 0)
+                        except:
+                            pass
+                    
+                    # Try to detect file type from raw_data if available
+                    if row["raw_data"]:
+                         try:
+                            raw = json.loads(row["raw_data"])
+                            # Raw data keys are file types (e.g. "production_cumulative": [...])
+                            # We take the first key that is not 'unknown' if possible
+                            for k in raw.keys():
+                                if k != "unknown":
+                                    file_type = k
+                                    break
+                            if not file_type and raw.keys():
+                                file_type = list(raw.keys())[0]
+                         except:
+                            pass
 
-                results.append({
-                    "upload_id": UUID(row["upload_id"]),
-                    "status": ProcessingStatus(row["status"]),
-                    "progress_percent": row["progress_percent"],
-                    "current_stage": row["current_stage"],
-                    "files_received": row["files_received"],
-                    "files_processed": row["files_processed"],
-                    "errors": json.loads(row["errors"]),
-                    "started_at": datetime.fromisoformat(row["started_at"]),
-                    "completed_at": datetime.fromisoformat(row["completed_at"]) if row["completed_at"] else None,
-                    "file_name": file_name,
-                    "file_size_bytes": file_size_bytes,
-                    "records_valid": records_valid,
-                    "records_invalid": records_invalid,
-                    "detected_file_type": file_type
-                })
+                    results.append({
+                        "upload_id": UUID(row["upload_id"]),
+                        "status": ProcessingStatus(row["status"]),
+                        "progress_percent": row["progress_percent"],
+                        "current_stage": row["current_stage"],
+                        "files_received": row["files_received"],
+                        "files_processed": row["files_processed"],
+                        "errors": json.loads(row["errors"]),
+                        "started_at": datetime.fromisoformat(row["started_at"]),
+                        "completed_at": datetime.fromisoformat(row["completed_at"]) if row["completed_at"] else None,
+                        "file_name": file_name,
+                        "file_size_bytes": file_size_bytes,
+                        "records_valid": records_valid,
+                        "records_invalid": records_invalid,
+                        "detected_file_type": file_type
+                    })
+                except Exception as e:
+                    # Log error but don't fail the request
+                    print(f"Error processing session row: {e}")
+                    continue
             return results
 
 async def reset_db():
