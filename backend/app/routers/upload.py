@@ -166,6 +166,20 @@ async def get_upload_history():
         for s in sessions
     ]
 
+@router.get("/uploads/{upload_id}/data")
+async def get_upload_data(upload_id: UUID):
+    """
+    Get processed data for a specific upload.
+    Returns raw data and validated data record counts/details.
+    """
+    from app.db import get_processed_data
+    data = await get_processed_data(upload_id)
+    
+    if not data:
+        raise HTTPException(status_code=404, detail="Upload data not found")
+        
+    return data
+
 @router.post("/reset")
 async def reset_database():
     """Clear all processed data and session history"""

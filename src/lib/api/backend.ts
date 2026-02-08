@@ -114,6 +114,12 @@ export interface StatsResponse {
   generated_at: string;
 }
 
+export interface ProcessedDataResponse {
+  raw_data: any;
+  validated_data: any;
+  computed_stats: any;
+}
+
 const BACKEND_URL = process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:8000';
 
 class BackendApiClient {
@@ -140,6 +146,12 @@ class BackendApiClient {
   async getUploadHistory(): Promise<ProcessingStatusResponse[]> {
     const response = await fetch(`${this.baseUrl}/api/uploads`);
     if (!response.ok) return [];
+    return response.json();
+  }
+
+  async getUploadData(uploadId: string): Promise<ProcessedDataResponse> {
+    const response = await fetch(`${this.baseUrl}/api/uploads/${uploadId}/data`);
+    if (!response.ok) throw new Error('Failed to fetch upload data');
     return response.json();
   }
 

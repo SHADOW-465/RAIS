@@ -2,6 +2,7 @@
 
 import React, { useState, useCallback } from 'react';
 import useSWR from 'swr';
+import Link from 'next/link';
 import { DashboardHeader } from '@/components/layout';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -532,14 +533,12 @@ export default function UploadPage() {
                         </TableCell>
                         <TableCell>
                           <div className="flex items-center gap-2">
-                            <Button variant="ghost" size="sm">
-                              <Eye className="w-4 h-4" />
-                            </Button>
-                            {upload.status === 'failed' && (
-                              <Button variant="ghost" size="sm">
-                                <RefreshCw className="w-4 h-4" />
+                            <Link href={`/data/preview/${upload.upload_id}`}>
+                              <Button variant="ghost" size="sm" className="gap-2">
+                                <Eye className="w-4 h-4" />
+                                View Data
                               </Button>
-                            )}
+                            </Link>
                           </div>
                         </TableCell>
                       </TableRow>
